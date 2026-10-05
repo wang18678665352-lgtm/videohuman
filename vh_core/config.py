@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     tts_ref_audio: str = ""
     tts_ref_text: str = "希望你以后能够做的比我还好呦。"
     cosyvoice_model_dir: str = "models/Fun-CosyVoice3-0.5B-2512"
+    indextts_model_dir: str = "models/IndexTTS-2"
+    indextts_repo_dir: str = "third_party/index-tts"
 
     # 数字人素材视频(默认空,必须由 spec/CLI 提供)
     avatar_video: str = ""
@@ -51,7 +53,7 @@ class Settings(BaseSettings):
     avatar_engine: str = "musetalk"
     lstmsync_dir: str = "third_party/lstmsync"
 
-    # TTS 引擎:cosyvoice3(本地)
+    # TTS 引擎:cosyvoice3(本地) | indextts2(本地)
     tts_engine: str = "cosyvoice3"
 
     # 后期:BGM(空=自动选 assets/bgm 第一首)与字幕样式
@@ -107,6 +109,14 @@ class Settings(BaseSettings):
     @property
     def musetalk_repo(self) -> Path:
         return self.third_party / "MuseTalk"
+
+    @property
+    def indextts_repo(self) -> Path:
+        return self.abs_path(Path(self.indextts_repo_dir))
+
+    @property
+    def indextts_model(self) -> Path:
+        return self.abs_path(Path(self.indextts_model_dir))
 
     @property
     def cosyvoice_model(self) -> Path:

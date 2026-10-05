@@ -702,7 +702,11 @@ class IndexTTS2:
                 print(">> remove old wav file:", output_path)
             if os.path.dirname(output_path) != "":
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            torchaudio.save(output_path, wav.type(torch.int16), sampling_rate)
+            try:
+                torchaudio.save(output_path, wav.type(torch.int16), sampling_rate)
+            except Exception:
+                import soundfile as sf
+                sf.write(output_path, wav.squeeze().type(torch.int16).cpu().numpy(), sampling_rate)
             print(">> wav file saved to:", output_path)
             if stream_return:
                 return None

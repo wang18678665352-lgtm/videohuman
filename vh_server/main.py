@@ -99,8 +99,9 @@ def _load_spec(job_id: str) -> dict[str, Any]:
 
 class JobCreate(BaseModel):
     job_id: str | None = None
-    text: str | None = None
-    share_url: str | None = None
+    audio: str | None = None               # 直接驱动音频路径(跳过 TTS,直接对口型)
+    text: str | None = None                # 口播文案(文案直给模式)或直接音频的配套字幕
+    share_url: str | None = None           # 抖音分享链接(克隆模式)
     ref_audio: str | None = None
     ref_text: str | None = None
     avatar_video: str | None = None
@@ -147,6 +148,8 @@ async def token_auth(request, call_next):
 def get_settings() -> dict[str, Any]:
     cookies_dir = settings.publish_cookies
     return {
+        "tts_engines": ["cosyvoice3", "indextts2"],
+        "default_tts_engine": settings.tts_engine,
         "avatar_engines": ["lstmsync", "musetalk"],
         "default_avatar_engine": settings.avatar_engine,
         "default_ref_audio": str(settings.default_ref_audio),
@@ -248,7 +251,7 @@ def _job_summary(job_dir: Path) -> dict[str, Any]:
         "status": status,
         "error": state.get("error"),
         "created_at": manifest.get("created_at"),
-        "mode": ("clone" if spec.get("share_url") else "text") if spec else None,
+        "mode": ("audio" if spec.get("audio") else ("clone" if spec.get("share_url") else "text")) if spec else None,
         "has_final": bool(final),
         "stages": {n: stages.get(n, {}).get("status", "pending") for n in STAGE_NAMES},
     }
@@ -266,8 +269,14 @@ def list_jobs() -> list[dict[str, Any]]:
 
 @app.post("/api/jobs")
 def create_job(body: JobCreate) -> dict[str, Any]:
-    if bool(body.text) == bool(body.share_url):
-        raise HTTPException(400, "text 与 share_url 必须二选一")
+    has_audio = bool((body.audio or "").strip())
+    has_text = bool((body.text or "").strip())
+    has_share = bool((body.share_url or "").strip())
+
+    if has_share and (has_audio or has_text):
+        raise HTTPException(400, "抖音克隆模式(share_url)不能与 text 或 audio 同时提供")
+    if not (has_audio or has_text or has_share):
+        raise HTTPException(400, "必须提供 audio(直接音频)、text(文案直给) 或 share_url(抖音克隆) 其中之一")
     job_id = body.job_id or f"job-{datetime.now():%Y%m%d-%H%M%S}"
     if not re.fullmatch(r"[\w\-]+", job_id):
         raise HTTPException(400, "job_id 只允许字母数字下划线连字符")

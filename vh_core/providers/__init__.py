@@ -20,11 +20,15 @@ def get_provider(kind: ProviderKind, settings: Settings, engine: str | None = No
     """
     if kind == "tts":
         engine = engine or settings.tts_engine
-        if engine != "cosyvoice3":
-            raise ValueError(f"未知 TTS 引擎: {engine}(可选: cosyvoice3)")
-        from .local.tts_cosyvoice3 import CosyVoice3TTS
+        if engine == "cosyvoice3":
+            from .local.tts_cosyvoice3 import CosyVoice3TTS
 
-        return CosyVoice3TTS(settings)
+            return CosyVoice3TTS(settings)
+        if engine in ("indextts2", "indextts", "index-tts"):
+            from .local.tts_indextts2 import IndexTTS2TTS
+
+            return IndexTTS2TTS(settings)
+        raise ValueError(f"未知 TTS 引擎: {engine}(可选: cosyvoice3 / indextts2)")
     if kind == "avatar":
         engine = engine or settings.avatar_engine
         if engine == "lstmsync":

@@ -24,3 +24,12 @@ configs/luogen.json
 # ---- 前端构建 ----
 web/node_modules/
 web/dist/
+
+# ---- 运行时素材与音视频(不入库) ----
+assets/*.mp4
+assets/*.wav
+assets/*.m4a
+assets/bgm/*.mp3
+assets/background_images/*.jpg
+assets/background_images/*.png
+models/*/hf_cache/

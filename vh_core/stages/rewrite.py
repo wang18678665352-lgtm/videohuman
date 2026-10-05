@@ -57,6 +57,16 @@ def clean_api_key(api_key_input: str | None) -> str | None:
 class RewriteStage(Stage):
     name = "rewrite"
 
+    def enabled(self, ctx: StageContext) -> bool:
+        """如果提供了直接驱动音频(对口型直通模式)，跳过文案改写阶段。"""
+        if bool(ctx.params.get("audio")):
+            return False
+        text = (ctx.params.get("text") or "").strip()
+        transcript = ctx.job_dir / "transcribe" / "transcript.txt"
+        if not text and not transcript.exists():
+            return False
+        return True
+
     def run(self, ctx: StageContext) -> dict[str, Path]:
         # 输入优先级:params.text(直给) > transcribe 产物(克隆流程)
         text = (ctx.params.get("text") or "").strip()

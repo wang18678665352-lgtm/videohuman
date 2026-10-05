@@ -15,7 +15,7 @@ from typing import Any
 
 from loguru import logger
 
-from ...config import Settings
+from ...config import PROJECT_ROOT, Settings
 
 _PATHS_INJECTED = False
 _MODEL = None
@@ -36,14 +36,27 @@ def _inject_paths(settings: Settings) -> None:
 
 def _load_model(settings: Settings):
     global _MODEL, _MODEL_SETTINGS_KEY
-    key = (str(settings.cosyvoice_model),)
+    model_path = settings.cosyvoice_model
+    has_yaml = any((model_path / f"cosyvoice{v}.yaml").exists() for v in ("", "2", "3"))
+    if not model_path.exists() or not has_yaml:
+        fallback = PROJECT_ROOT.parent / "src_v2" / "models" / "Fun-CosyVoice3-0.5B-2512"
+        if fallback.exists() and any((fallback / f"cosyvoice{v}.yaml").exists() for v in ("", "2", "3")):
+            logger.info(f"主模型目录缺失，使用备用模型目录: {fallback}")
+            model_path = fallback
+        else:
+            raise FileNotFoundError(
+                f"CosyVoice 模型未找到或权重不完整: {model_path}\n"
+                f"请运行 `uv run python download_weights.py ms` 下载模型权重，或在 configs/default.toml 中指定有效的 cosyvoice_model_dir。"
+            )
+
+    key = (str(model_path),)
     if _MODEL is not None and _MODEL_SETTINGS_KEY == key:
         return _MODEL
     _inject_paths(settings)
-    logger.info(f"加载 CosyVoice3 模型: {settings.cosyvoice_model}")
+    logger.info(f"加载 CosyVoice3 模型: {model_path}")
     from cosyvoice.cli.cosyvoice import AutoModel  # noqa: PLC0415
 
-    _MODEL = AutoModel(model_dir=str(settings.cosyvoice_model))
+    _MODEL = AutoModel(model_dir=str(model_path))
     _MODEL_SETTINGS_KEY = key
     logger.info("CosyVoice3 模型加载完成")
     return _MODEL

@@ -9,6 +9,7 @@
       <el-table-column label="模式" width="80">
         <template #default="{ row }">
           <el-tag v-if="row.mode === 'clone'" type="warning" size="small">克隆</el-tag>
+          <el-tag v-else-if="row.mode === 'audio'" type="success" size="small">音频</el-tag>
           <el-tag v-else-if="row.mode === 'text'" size="small">文案</el-tag>
           <span v-else>-</span>
         </template>

@@ -61,7 +61,8 @@ def capability(
 def run(
     spec: Path | None = typer.Option(None, "--spec", help="JobSpec 文件(TOML/JSON)"),
     job_id: str | None = typer.Option(None, "--job-id", help="任务 ID(无 spec 时必填)"),
-    text: str | None = typer.Option(None, "--text", help="文案内容(直给模式)"),
+    audio: str | None = typer.Option(None, "--audio", help="直接驱动音频路径(跳过 TTS,直接对口型)"),
+    text: str | None = typer.Option(None, "--text", help="文案内容(直给模式或配套字幕)"),
     share_url: str | None = typer.Option(None, "--share-url", help="抖音分享链接(克隆模式)"),
     douyin_cookie: str | None = typer.Option(None, "--douyin-cookie", help="抖音 cookie(也可用 VH_DOUYIN_COOKIE)"),
     ref_audio: str | None = typer.Option(None, "--ref-audio", help="TTS 参考音频路径"),
@@ -75,7 +76,7 @@ def run(
     json_out: bool = typer.Option(False, "--json", help="输出结构化 JSON(manifest)"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
-    """整跑流水线(双模式):share_url 走 下载→转写→改写;text 直给。支持断点续跑。"""
+    """整跑流水线(三模式):audio 直接对口型;share_url 走 下载→转写→改写;text 直给。支持断点续跑。"""
     _setup_logging(verbose)
     if spec is None and not job_id:
         typer.echo("错误:--spec 或 --job-id 必须给一个", err=True)
@@ -83,7 +84,7 @@ def run(
     spec_obj = load_spec(spec) if spec else None
     jid = job_id or spec_obj.job_id
     params = dict(spec_obj.params) if spec_obj else {}
-    for k, v in {"text": text, "share_url": share_url, "douyin_cookie": douyin_cookie,
+    for k, v in {"audio": audio, "text": text, "share_url": share_url, "douyin_cookie": douyin_cookie,
                  "ref_audio": ref_audio, "ref_text": ref_text,
                  "avatar_video": avatar_video, "publish_title": publish_title,
                  "tts_engine": tts_engine}.items():
@@ -156,6 +157,7 @@ def serve(
 def _single_stage(stage_name: str):
     def cmd(
         job_id: str = typer.Option(..., "--job-id"),
+        audio: str | None = typer.Option(None, "--audio", help="直接驱动音频路径"),
         text: str | None = typer.Option(None, "--text"),
         share_url: str | None = typer.Option(None, "--share-url"),
         douyin_cookie: str | None = typer.Option(None, "--douyin-cookie"),
@@ -172,7 +174,7 @@ def _single_stage(stage_name: str):
         f"""单步运行 {stage_name} stage(输入缺省时取上游 manifest 产物)。"""
         _setup_logging(verbose)
         params: dict[str, Any] = {}
-        for k, v in {"text": text, "share_url": share_url, "douyin_cookie": douyin_cookie,
+        for k, v in {"audio": audio, "text": text, "share_url": share_url, "douyin_cookie": douyin_cookie,
                      "ref_audio": ref_audio, "ref_text": ref_text,
                      "avatar_video": avatar_video, "publish_title": publish_title}.items():
             if v is not None:

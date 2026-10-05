@@ -350,16 +350,42 @@ class PostprocessStage(Stage):
 
     def _subtitle_segments(self, ctx: StageContext, cur: Path, duration: float,
                            silence_applied: bool) -> list[dict]:
-        """字幕分句 [{text, start, end}]:**文本一律来自原文**(rewrite 产物或
-        params.text);job_dir/tts/speech.wav 存在时用 ASR 词级时间轴对齐
-        (静音切除改过时间轴则转写当前视频音频),任何异常回退均分时长。"""
+        """字幕分句 [{text, start, end}]: 文本来自原文(rewrite 产物、params.text、直接音频同名 .txt 或 ASR 转写)；
+        tts/speech.wav 或 params.audio 存在时用 ASR 词级时间轴对齐，任何异常回退均分时长。"""
         text_file = ctx.job_dir / "rewrite" / "text.txt"
         text = (text_file.read_text(encoding="utf-8").strip()
                 if text_file.exists() else (ctx.params.get("text") or "").strip())
-        lines = split_subtitle_lines(text) if text else []
 
-        speech = ctx.job_dir / "tts" / "speech.wav"
-        if lines and speech.exists():
+        speech: Path | None = None
+        if ctx.params.get("audio"):
+            audio_path = Path(ctx.params["audio"])
+            if not audio_path.is_absolute():
+                audio_path = ctx.settings.abs_path(audio_path)
+            if audio_path.exists():
+                speech = audio_path
+                if not text:
+                    sidecar = audio_path.with_suffix(".txt")
+                    if sidecar.exists():
+                        text = sidecar.read_text(encoding="utf-8").strip()
+                        logger.info(f"直接音频取同名字幕文本: {sidecar.name}")
+        if speech is None:
+            tts_speech = ctx.job_dir / "tts" / "speech.wav"
+            if tts_speech.exists():
+                speech = tts_speech
+
+        # 若未提供文案但有驱动音频，尝试通过 ASR 自动转写字幕文本
+        if not text and speech is not None and speech.exists():
+            try:
+                from ..providers import get_provider  # noqa: PLC0415
+                asr_res = get_provider("asr", ctx.settings).transcribe(speech)
+                text = (asr_res.get("text") or "").strip()
+                if text:
+                    logger.info(f"直接音频通过 ASR 自动生成字幕文案: {len(text)} 字")
+            except Exception as e:
+                logger.warning(f"直接音频 ASR 转写字幕失败: {e}")
+
+        lines = split_subtitle_lines(text) if text else []
+        if lines and speech is not None and speech.exists():
             try:
                 from ..providers import get_provider  # noqa: PLC0415
 

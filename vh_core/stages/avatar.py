@@ -15,10 +15,22 @@ from ..providers import get_provider
 class AvatarStage(Stage):
     name = "avatar"
 
+    def _resolve_audio(self, ctx: StageContext) -> Path:
+        """驱动音频解析: 优先取 params.audio(直接对口型), 其次取 tts/speech.wav。"""
+        if ctx.params.get("audio"):
+            audio = Path(ctx.params["audio"])
+            if not audio.is_absolute():
+                audio = ctx.settings.abs_path(audio)
+            if not audio.exists():
+                raise FileNotFoundError(f"指定的驱动音频不存在: {audio}")
+            return audio
+        tts_audio = ctx.job_dir / "tts" / "speech.wav"
+        if tts_audio.exists():
+            return tts_audio
+        raise FileNotFoundError("avatar 需要驱动音频: 请在参数中提供 audio (已有语音) 或先运行 tts 阶段")
+
     def run(self, ctx: StageContext) -> dict[str, Path]:
-        audio = ctx.job_dir / "tts" / "speech.wav"
-        if not audio.exists():
-            raise FileNotFoundError("avatar 需要 tts 产物 speech.wav,请先跑 tts stage")
+        audio = self._resolve_audio(ctx)
 
         engine = ctx.params.get("avatar_engine")
         video = ctx.params.get("avatar_video") or ctx.settings.avatar_video

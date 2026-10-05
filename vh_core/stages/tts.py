@@ -30,6 +30,12 @@ def _clean_ref_text(text: str) -> str:
 class TTSStage(Stage):
     name = "tts"
 
+    def enabled(self, ctx: StageContext) -> bool:
+        """如果提供了直接驱动音频(对口型直通模式)，跳过 TTS 阶段。"""
+        if bool(ctx.params.get("audio")):
+            return False
+        return True
+
     def _resolve_ref_text(self, ctx: StageContext, ref_audio: Path | None) -> str:
         """参考音文本:params 直给 > 同名 .txt sidecar > 默认参考音用 config 默认文本
         > 其余情况用 ASR 自动识别(结果存 stage_dir/ref_text.txt 备查)。"""

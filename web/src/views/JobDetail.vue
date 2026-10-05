@@ -59,7 +59,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { fetchText, fileUrl, getJob, getSettings, runJob } from '../api.js'
+import { assetUrl, fetchText, fileUrl, getJob, getSettings, runJob } from '../api.js'
 
 const props = defineProps({ id: String })
 const job = ref({ stages: {} })
@@ -73,8 +73,11 @@ let timer = null
 const outputs = computed(() => job.value.manifest?.stages?.postprocess?.outputs || {})
 const midOutputs = computed(() => {
   const st = job.value.manifest?.stages || {}
+  const spec = job.value.spec || {}
   const list = []
-  if (st.tts?.outputs?.speech) {
+  if (spec.audio) {
+    list.push({ label: '驱动音频', kind: 'audio', path: spec.audio, url: assetUrl(spec.audio) })
+  } else if (st.tts?.outputs?.speech) {
     list.push({ label: 'TTS 音频', kind: 'audio', path: st.tts.outputs.speech, url: fileUrl(props.id, st.tts.outputs.speech) })
   }
   if (st.download?.outputs?.video) {

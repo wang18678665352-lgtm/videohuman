@@ -226,8 +226,15 @@ class CosyVoice3(CosyVoice2):
 
 
 def AutoModel(**kwargs):
-    if not os.path.exists(kwargs['model_dir']):
-        kwargs['model_dir'] = snapshot_download(kwargs['model_dir'])
+    model_dir = kwargs['model_dir']
+    if not os.path.exists(model_dir):
+        if "\\" in model_dir or "/" in model_dir or ":" in model_dir:
+            if "Fun-CosyVoice3-0.5B-2512" in model_dir:
+                kwargs['model_dir'] = snapshot_download("FunAudioLLM/Fun-CosyVoice3-0.5B-2512", local_dir=model_dir)
+            else:
+                raise FileNotFoundError(f"CosyVoice model directory not found: {model_dir}")
+        else:
+            kwargs['model_dir'] = snapshot_download(model_dir)
     if os.path.exists('{}/cosyvoice.yaml'.format(kwargs['model_dir'])):
         return CosyVoice(**kwargs)
     elif os.path.exists('{}/cosyvoice2.yaml'.format(kwargs['model_dir'])):
@@ -235,4 +242,4 @@ def AutoModel(**kwargs):
     elif os.path.exists('{}/cosyvoice3.yaml'.format(kwargs['model_dir'])):
         return CosyVoice3(**kwargs)
     else:
-        raise TypeError('No valid model type found!')
+        raise TypeError(f"No valid model type found in {kwargs['model_dir']}! Please check model weights.")
