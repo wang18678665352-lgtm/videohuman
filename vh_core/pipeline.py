@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -94,20 +94,24 @@ class Pipeline:
             stage_dir = job_dir / stage.name
             stage_dir.mkdir(parents=True, exist_ok=True)
             ctx = StageContext(
-                settings=self.settings, job_id=job_id, params=params,
-                stage_dir=stage_dir, job_dir=job_dir,
+                settings=self.settings,
+                job_id=job_id,
+                params=params,
+                stage_dir=stage_dir,
+                job_dir=job_dir,
             )
             if not stage.enabled(ctx):
                 logger.info(f"[{job_id}] stage '{stage.name}' 本 job 不适用,跳过")
                 manifest.stages[stage.name] = StageResult(
-                    name=stage.name, status=StageStatus.SKIPPED,
+                    name=stage.name,
+                    status=StageStatus.SKIPPED,
                 )
                 self.save_manifest(manifest)
                 continue
             result = StageResult(
                 name=stage.name,
                 status=StageStatus.RUNNING,
-                started_at=datetime.now(timezone.utc),
+                started_at=datetime.now(UTC),
             )
             manifest.stages[stage.name] = result
             self.save_manifest(manifest)  # RUNNING 也落盘，崩溃后可见现场
@@ -118,13 +122,13 @@ class Pipeline:
                 logger.exception(f"[{job_id}] stage '{stage.name}' 失败")
                 result.status = StageStatus.FAILED
                 result.error = str(e)
-                result.finished_at = datetime.now(timezone.utc)
+                result.finished_at = datetime.now(UTC)
                 self.save_manifest(manifest)
                 raise PipelineStageError(stage.name, e) from e
 
             result.status = StageStatus.SUCCESS
             result.outputs = {k: ctx.rel(v) for k, v in outputs.items()}
-            result.finished_at = datetime.now(timezone.utc)
+            result.finished_at = datetime.now(UTC)
             self.save_manifest(manifest)
             logger.info(f"[{job_id}] stage '{stage.name}' 完成: {result.outputs}")
 

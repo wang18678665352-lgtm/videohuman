@@ -13,6 +13,11 @@ from .transcribe import TranscribeStage
 from .tts import TTSStage
 
 __all__ = [
-    "DownloadStage", "TranscribeStage", "RewriteStage",
-    "TTSStage", "AvatarStage", "PostprocessStage", "PublishStage",
+    "AvatarStage",
+    "DownloadStage",
+    "PostprocessStage",
+    "PublishStage",
+    "RewriteStage",
+    "TTSStage",
+    "TranscribeStage",
 ]

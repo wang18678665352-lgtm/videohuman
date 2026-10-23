@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -47,13 +46,13 @@ def _load_model(settings: Settings):
             )
 
     key = (str(model_path),)
-    if _MODEL is not None and _MODEL_SETTINGS_KEY == key:
+    if _MODEL is not None and key == _MODEL_SETTINGS_KEY:
         return _MODEL
 
     _inject_paths(settings)
     logger.info(f"加载 IndexTTS-2 模型: {model_path}")
     import torch
-    from indextts.infer_v2 import IndexTTS2  # noqa: PLC0415
+    from indextts.infer_v2 import IndexTTS2
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     cfg_path = str(model_path / "config.yaml")
@@ -114,7 +113,7 @@ class IndexTTS2TTS:
         _MODEL = None
         _MODEL_SETTINGS_KEY = None
         try:
-            import torch  # noqa: PLC0415
+            import torch
 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()

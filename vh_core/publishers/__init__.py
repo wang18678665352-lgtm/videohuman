@@ -5,6 +5,10 @@ from .bilibili import BilibiliPublisher
 from .douyin import DouyinPublisher, login_douyin
 
 __all__ = [
-    "PublisherBase", "truncate_title", "normalize_tags",
-    "BilibiliPublisher", "DouyinPublisher", "login_douyin",
+    "BilibiliPublisher",
+    "DouyinPublisher",
+    "PublisherBase",
+    "login_douyin",
+    "normalize_tags",
+    "truncate_title",
 ]

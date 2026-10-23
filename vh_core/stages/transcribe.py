@@ -34,9 +34,17 @@ class TranscribeStage(Stage):
         txt = ctx.stage_dir / "transcript.txt"
         txt.write_text(result["text"], encoding="utf-8")
         js = ctx.stage_dir / "transcript.json"
-        js.write_text(json.dumps(
-            {"text": result["text"], "sentences": result["sentences"],
-             "words": result["words"], "timestamp": result["timestamp"]},
-            ensure_ascii=False, indent=2,
-        ), encoding="utf-8")
+        js.write_text(
+            json.dumps(
+                {
+                    "text": result["text"],
+                    "sentences": result["sentences"],
+                    "words": result["words"],
+                    "timestamp": result["timestamp"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         return {"transcript": txt, "transcript_json": js}

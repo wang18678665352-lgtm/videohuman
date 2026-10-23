@@ -38,25 +38,21 @@ class BilibiliPublisher:
         cookies = data.get("cookie_info", {}).get("cookies")
         if not isinstance(cookies, list) or not cookies:
             raise ValueError(
-                f"B站 cookie 文件缺少 cookie_info.cookies 列表: {cookies_path},"
-                "应为 biliup 登录导出的 JSON"
+                f"B站 cookie 文件缺少 cookie_info.cookies 列表: {cookies_path},应为 biliup 登录导出的 JSON"
             )
         names = {c.get("name") for c in cookies if isinstance(c, dict)}
         missing = [k for k in REQUIRED_COOKIE_KEYS if k not in names]
         if missing:
-            raise ValueError(
-                f"B站 cookie 缺少关键字段 {missing}: {cookies_path},登录态不完整,请重新导出"
-            )
+            raise ValueError(f"B站 cookie 缺少关键字段 {missing}: {cookies_path},登录态不完整,请重新导出")
         if not data.get("token_info", {}).get("access_token"):
-            logger.warning(f"B站 cookie 缺少 token_info.access_token: {cookies_path},"
-                           "部分接口(如定时发布)可能失败")
+            logger.warning(f"B站 cookie 缺少 token_info.access_token: {cookies_path},部分接口(如定时发布)可能失败")
 
     def extract_keys(self, cookies_path: Path) -> dict:
         """从 biliup 登录 JSON 提取 login_by_cookies 所需键值。"""
         data = json.loads(cookies_path.read_text(encoding="utf-8"))
         keys = {}
         for cookie in data["cookie_info"]["cookies"]:
-            if cookie.get("name") in REQUIRED_COOKIE_KEYS + ["DedeUserID__ckMd5"]:
+            if cookie.get("name") in [*REQUIRED_COOKIE_KEYS, "DedeUserID__ckMd5"]:
                 keys[cookie["name"]] = cookie["value"]
         token = data.get("token_info", {}).get("access_token")
         if token:
@@ -65,7 +61,7 @@ class BilibiliPublisher:
 
     def _build_data(self, title: str, tags: list[str], publish_date: datetime | None):
         """装配 biliup Data(网络请求前的纯参数组装,可独立自检)。"""
-        from biliup.plugins.bili_webup import Data  # noqa: PLC0415
+        from biliup.plugins.bili_webup import Data
 
         data = Data()
         data.copyright = 1  # 自制
@@ -87,7 +83,7 @@ class BilibiliPublisher:
         cookies_path: Path,
         publish_date: datetime | None = None,
     ) -> dict:
-        from biliup.plugins.bili_webup import BiliBili  # noqa: PLC0415
+        from biliup.plugins.bili_webup import BiliBili
 
         self.validate_cookies(cookies_path)
         if not video.exists():
@@ -117,9 +113,7 @@ class BilibiliPublisher:
 
         if ret.get("code") == 0:
             logger.info(f"B站投稿成功: {video.name} (bvid={ret.get('data', {}).get('bvid')})")
-            return {"platform": self.platform, "ok": True,
-                    "detail": f"投稿成功 bvid={ret.get('data', {}).get('bvid')}"}
+            return {"platform": self.platform, "ok": True, "detail": f"投稿成功 bvid={ret.get('data', {}).get('bvid')}"}
         msg = ret.get("message", "未知错误")
         logger.error(f"B站投稿失败: code={ret.get('code')} message={msg}")
-        return {"platform": self.platform, "ok": False,
-                "detail": f"投稿被拒: code={ret.get('code')} {msg}"}
+        return {"platform": self.platform, "ok": False, "detail": f"投稿被拒: code={ret.get('code')} {msg}"}

@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import media as _media
-
 from ..config import Settings
 from ..ffmpeg_utils import get_ffmpeg
 
@@ -20,12 +19,28 @@ pick_font_file = _media.pick_font_file
 add_ai_watermark = _media.add_ai_watermark
 
 
-def add_text_watermark(settings: Settings, video: Path, output: Path,
-                       work_dir: Path, text: str, font_dir: Path,
-                       font_size: int = 60, font_color: str = "white",
-                       position: str = "top_right", margin: int = 40) -> Path:
+def add_text_watermark(
+    settings: Settings,
+    video: Path,
+    output: Path,
+    work_dir: Path,
+    text: str,
+    font_dir: Path,
+    font_size: int = 60,
+    font_color: str = "white",
+    position: str = "top_right",
+    margin: int = 40,
+) -> Path:
     """给视频右上角(默认)加文字水印,音频直拷。video/output 须位于 work_dir。"""
     return _media.add_text_watermark(
-        video, output, work_dir, text, font_dir,
-        font_size=font_size, font_color=font_color,
-        position=position, margin=margin, ffmpeg=get_ffmpeg(settings))
+        video,
+        output,
+        work_dir,
+        text,
+        font_dir,
+        font_size=font_size,
+        font_color=font_color,
+        position=position,
+        margin=margin,
+        ffmpeg=get_ffmpeg(settings),
+    )

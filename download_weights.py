@@ -3,6 +3,7 @@
 直接用解释器 API 下载,绕开 Git Bash 下 .exe CLI 包装器静默失效的问题。
 用法: uv run python download_weights.py [ms|hf|all]
 """
+
 import os
 import sys
 
@@ -10,8 +11,15 @@ SRC_V2 = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(SRC_V2, "models")
 MUSETALK_MODELS = os.path.join(SRC_V2, "third_party", "MuseTalk", "models")
 S3FD_PATH = os.path.join(
-    SRC_V2, "third_party", "MuseTalk", "musetalk", "utils",
-    "face_detection", "detection", "sfd", "s3fd.pth",
+    SRC_V2,
+    "third_party",
+    "MuseTalk",
+    "musetalk",
+    "utils",
+    "face_detection",
+    "detection",
+    "sfd",
+    "s3fd.pth",
 )
 # S3FD 人脸检测器官方权重(face-alignment 项目同源,见 sfd_detector.py 的 models_urls)
 S3FD_URL = "https://www.adrianbulat.com/downloads/python-fan/s3fd-619a316812.pth"
@@ -41,35 +49,74 @@ def download_hf():
 
     base = "https://hf-mirror.com/{repo}/resolve/main/{path}"
     jobs = [
-        ("TMElyralab/MuseTalk", MUSETALK_MODELS, [
-            "musetalk/musetalk.json", "musetalk/pytorch_model.bin",
-            "musetalkV15/musetalk.json", "musetalkV15/unet.pth",
-        ]),
-        ("stabilityai/sd-vae-ft-mse", os.path.join(MUSETALK_MODELS, "sd-vae"), [
-            "config.json", "diffusion_pytorch_model.bin",
-        ]),
-        ("openai/whisper-tiny", os.path.join(MUSETALK_MODELS, "whisper"), [
-            "config.json", "pytorch_model.bin", "preprocessor_config.json",
-        ]),
-        ("ByteDance/LatentSync", os.path.join(MUSETALK_MODELS, "syncnet"), [
-            "latentsync_syncnet.pt",
-        ]),
+        (
+            "TMElyralab/MuseTalk",
+            MUSETALK_MODELS,
+            [
+                "musetalk/musetalk.json",
+                "musetalk/pytorch_model.bin",
+                "musetalkV15/musetalk.json",
+                "musetalkV15/unet.pth",
+            ],
+        ),
+        (
+            "stabilityai/sd-vae-ft-mse",
+            os.path.join(MUSETALK_MODELS, "sd-vae"),
+            [
+                "config.json",
+                "diffusion_pytorch_model.bin",
+            ],
+        ),
+        (
+            "openai/whisper-tiny",
+            os.path.join(MUSETALK_MODELS, "whisper"),
+            [
+                "config.json",
+                "pytorch_model.bin",
+                "preprocessor_config.json",
+            ],
+        ),
+        (
+            "ByteDance/LatentSync",
+            os.path.join(MUSETALK_MODELS, "syncnet"),
+            [
+                "latentsync_syncnet.pt",
+            ],
+        ),
         # MuseTalk 人脸解析权重(官方 download_weights.bat 指定的 HF 来源,
         # 文件清单与放置路径同 third_party/MuseTalk/README.md)
-        ("ManyOtherFunctions/face-parse-bisent",
-         os.path.join(MUSETALK_MODELS, "face-parse-bisent"), [
-            "79999_iter.pth", "resnet18-5c106cde.pth",
-        ]),
-        ("IndexTeam/IndexTTS-2", os.path.join(MODELS_DIR, "IndexTTS-2"), [
-            "bpe.model", "config.yaml", "feat1.pt", "feat2.pt", "gpt.pth",
-            "s2mel.pth", "wav2vec2bert_stats.pt",
-            "qwen0.6bemo4-merge/Modelfile", "qwen0.6bemo4-merge/added_tokens.json",
-            "qwen0.6bemo4-merge/chat_template.jinja", "qwen0.6bemo4-merge/config.json",
-            "qwen0.6bemo4-merge/generation_config.json", "qwen0.6bemo4-merge/merges.txt",
-            "qwen0.6bemo4-merge/model.safetensors", "qwen0.6bemo4-merge/special_tokens_map.json",
-            "qwen0.6bemo4-merge/tokenizer.json", "qwen0.6bemo4-merge/tokenizer_config.json",
-            "qwen0.6bemo4-merge/vocab.json",
-        ]),
+        (
+            "ManyOtherFunctions/face-parse-bisent",
+            os.path.join(MUSETALK_MODELS, "face-parse-bisent"),
+            [
+                "79999_iter.pth",
+                "resnet18-5c106cde.pth",
+            ],
+        ),
+        (
+            "IndexTeam/IndexTTS-2",
+            os.path.join(MODELS_DIR, "IndexTTS-2"),
+            [
+                "bpe.model",
+                "config.yaml",
+                "feat1.pt",
+                "feat2.pt",
+                "gpt.pth",
+                "s2mel.pth",
+                "wav2vec2bert_stats.pt",
+                "qwen0.6bemo4-merge/Modelfile",
+                "qwen0.6bemo4-merge/added_tokens.json",
+                "qwen0.6bemo4-merge/chat_template.jinja",
+                "qwen0.6bemo4-merge/config.json",
+                "qwen0.6bemo4-merge/generation_config.json",
+                "qwen0.6bemo4-merge/merges.txt",
+                "qwen0.6bemo4-merge/model.safetensors",
+                "qwen0.6bemo4-merge/special_tokens_map.json",
+                "qwen0.6bemo4-merge/tokenizer.json",
+                "qwen0.6bemo4-merge/tokenizer_config.json",
+                "qwen0.6bemo4-merge/vocab.json",
+            ],
+        ),
     ]
     for repo, dest_dir, files in jobs:
         for rel in files:
@@ -100,16 +147,17 @@ def download_hf():
                                 f.write(chunk)
                                 done += len(chunk)
                                 if total and done % (500 << 20) < (1 << 20):
-                                    print(f"    {done/1e9:.2f}/{total/1e9:.2f} GB", flush=True)
+                                    print(f"    {done / 1e9:.2f}/{total / 1e9:.2f} GB", flush=True)
                     break
                 except Exception as e:
-                    print(f"    中断(第{attempt}次,已下 {pos/1e9:.2f} GB): {type(e).__name__},5 秒后续传", flush=True)
+                    print(f"    中断(第{attempt}次,已下 {pos / 1e9:.2f} GB): {type(e).__name__},5 秒后续传", flush=True)
                     import time
+
                     time.sleep(5)
             else:
                 raise RuntimeError(f"{rel} 重试 10 次仍失败")
             os.replace(part, out)
-            print(f"== [HF] 完成 {rel} ({os.path.getsize(out)/1e6:.1f} MB)", flush=True)
+            print(f"== [HF] 完成 {rel} ({os.path.getsize(out) / 1e6:.1f} MB)", flush=True)
 
     # bilibili 模型协议要求每份拷贝附协议全文:下载完成后把 LICENSE 复制进权重目录
     import shutil
@@ -159,7 +207,7 @@ def download_s3fd():
     else:
         raise RuntimeError("s3fd.pth 重试 10 次仍失败(也可由引擎首次运行时自动下载)")
     os.replace(part, out)
-    print(f"== [S3FD] 完成 s3fd.pth ({os.path.getsize(out)/1e6:.1f} MB)", flush=True)
+    print(f"== [S3FD] 完成 s3fd.pth ({os.path.getsize(out) / 1e6:.1f} MB)", flush=True)
 
 
 if __name__ == "__main__":

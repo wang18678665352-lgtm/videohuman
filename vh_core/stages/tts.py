@@ -18,8 +18,7 @@ from ..providers import get_provider
 
 # 参考音文本只保留中英文/数字/常用标点,滤掉 SenseVoice 情感标记等残留(emoji 等)
 _REF_TEXT_DROP = re.compile(
-    "[^\\w\\s,.!?;:—·…-、。"
-    "\\uff0c\\uff01\\uff1f\\uff1a\\uff1b\\u3010\\u3011\\u300a\\u300b\\uff08\\uff09]+"
+    "[^\\w\\s,.!?;:—·…-、。\\uff0c\\uff01\\uff1f\\uff1a\\uff1b\\u3010\\u3011\\u300a\\u300b\\uff08\\uff09]+"
 )
 
 
@@ -32,9 +31,7 @@ class TTSStage(Stage):
 
     def enabled(self, ctx: StageContext) -> bool:
         """如果提供了直接驱动音频(对口型直通模式)，跳过 TTS 阶段。"""
-        if bool(ctx.params.get("audio")):
-            return False
-        return True
+        return not ctx.params.get("audio")
 
     def _resolve_ref_text(self, ctx: StageContext, ref_audio: Path | None) -> str:
         """参考音文本:params 直给 > 同名 .txt sidecar > 默认参考音用 config 默认文本
@@ -49,9 +46,7 @@ class TTSStage(Stage):
                 logger.info(f"参考音文本取同名文件: {sidecar.name} ({len(text)} 字)")
                 return text
             if ref_audio.resolve() != ctx.settings.default_ref_audio.resolve():
-                text = _clean_ref_text(
-                    get_provider("asr", ctx.settings).transcribe(ref_audio).get("text") or ""
-                )
+                text = _clean_ref_text(get_provider("asr", ctx.settings).transcribe(ref_audio).get("text") or "")
                 if text:
                     (ctx.stage_dir / "ref_text.txt").write_text(text, encoding="utf-8")
                     logger.info(f"参考音文本 ASR 自动识别: {len(text)} 字")

@@ -34,8 +34,13 @@ def build_pipeline(settings: Settings) -> Pipeline:
 
     return Pipeline(
         stages=[
-            DownloadStage(), TranscribeStage(), RewriteStage(),
-            TTSStage(), AvatarStage(), PostprocessStage(), PublishStage(),
+            DownloadStage(),
+            TranscribeStage(),
+            RewriteStage(),
+            TTSStage(),
+            AvatarStage(),
+            PostprocessStage(),
+            PublishStage(),
         ],
         settings=settings,
     )
@@ -95,8 +100,7 @@ def run_batch(
     pipeline = build_pipeline(settings)
     report: dict[str, Any] = {"total": len(specs), "succeeded": 0, "failed": 0, "jobs": []}
     for spec in specs:
-        entry: dict[str, Any] = {"job_id": spec.job_id, "ok": False,
-                                 "failed_stage": None, "error": None, "final": None}
+        entry: dict[str, Any] = {"job_id": spec.job_id, "ok": False, "failed_stage": None, "error": None, "final": None}
         try:
             manifest = run_job(spec, settings, pipeline, resume=resume)
             entry["ok"] = True

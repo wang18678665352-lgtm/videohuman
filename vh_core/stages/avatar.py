@@ -38,13 +38,15 @@ class AvatarStage(Stage):
             raise ValueError("avatar 需要素材视频:params.avatar_video 或 config avatar_video")
         video = Path(video)
         if not video.is_absolute():
-            video = (ctx.settings.abs_path(video))
+            video = ctx.settings.abs_path(video)
 
         avatar_params = dict(ctx.params.get("avatar", {}))
         out = ctx.stage_dir / "avatar.mp4"
         provider = get_provider("avatar", ctx.settings, engine=engine)
         provider.generate(
-            video=video, audio=audio, out_path=out,
+            video=video,
+            audio=audio,
+            out_path=out,
             work_dir=ctx.stage_dir / "tmp",
             **avatar_params,
         )

@@ -10,15 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import media as _media
-
 from ..config import Settings
 from ..ffmpeg_utils import get_ffmpeg
 
 add_multicolor_text = _media.add_multicolor_text
 
 
-def extract_frame(settings: Settings, video: Path, output: Path,
-                  frame_time: float | None = None) -> Path:
+def extract_frame(settings: Settings, video: Path, output: Path, frame_time: float | None = None) -> Path:
     """抽视频一帧做封面底图;frame_time 缺省取时长中点。"""
-    return _media.extract_frame(video, output, frame_time=frame_time,
-                                ffmpeg=get_ffmpeg(settings))
+    return _media.extract_frame(video, output, frame_time=frame_time, ffmpeg=get_ffmpeg(settings))

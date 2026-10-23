@@ -38,7 +38,10 @@ def _detect_via_nvidia_smi() -> CapabilityInfo | None:
     try:
         out = subprocess.run(
             [exe, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=15, check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=True,
         ).stdout
     except (subprocess.SubprocessError, OSError) as e:
         logger.debug(f"nvidia-smi 探测失败: {e}")
@@ -55,7 +58,7 @@ def _detect_via_nvidia_smi() -> CapabilityInfo | None:
 
 def _detect_via_torch() -> CapabilityInfo | None:
     try:
-        import torch  # noqa: PLC0415
+        import torch
     except ImportError:
         return None
     if not torch.cuda.is_available():
@@ -80,6 +83,5 @@ def ensure_cuda(capability: CapabilityInfo | None = None) -> None:
     capability = capability or detect_capability()
     if not capability.has_cuda:
         raise RuntimeError(
-            "未检测到可用 CUDA GPU:本项目全部推理在本地 GPU 运行,"
-            "请确认显卡驱动已安装(nvidia-smi 可用)后重试"
+            "未检测到可用 CUDA GPU:本项目全部推理在本地 GPU 运行,请确认显卡驱动已安装(nvidia-smi 可用)后重试"
         )

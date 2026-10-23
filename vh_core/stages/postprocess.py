@@ -32,12 +32,21 @@ AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
 FONT_EXTS = {".ttf", ".otf", ".ttc"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 
+# 句末标点集合:字幕分句后要把句尾的标点串(如 "。。。")整段剥掉
+_TRAILING_PUNCT = ",。!?!;;"
+
+
+def _strip_trailing_punct(seg: str) -> str:
+    """剥掉句尾连续的标点(参数是字符集,与 str.strip 语义不同,故单列成函数)。"""
+    return seg.rstrip(_TRAILING_PUNCT)
+
 
 def _video_info(settings: Settings, video: Path) -> tuple[float, int, int]:
     """返回 (时长秒, 宽, 高)。"""
     exe = get_ffmpeg(settings)
-    r = subprocess.run([exe, "-hide_banner", "-i", str(video)],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = subprocess.run(
+        [exe, "-hide_banner", "-i", str(video)], capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
     err = r.stderr or ""
     m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", err)
     if not m:
@@ -51,7 +60,7 @@ def _video_info(settings: Settings, video: Path) -> tuple[float, int, int]:
 
 
 def _ass_ts(t: float) -> str:
-    ms = int(round(t * 1000))
+    ms = round(t * 1000)
     h, ms = divmod(ms, 3600_000)
     m, ms = divmod(ms, 60_000)
     s, cs = divmod(ms, 1000)
@@ -63,7 +72,7 @@ def split_subtitle_lines(text: str, max_len: int = 15) -> list[str]:
     chunks: list[str] = []
     for raw in text.splitlines():
         for seg in re.split(r"(?<=[,。!?!;;])", raw.strip()):
-            seg = seg.strip().rstrip(",。!?!;;")
+            seg = _strip_trailing_punct(seg)
             if not seg:
                 continue
             while len(seg) > max_len:
@@ -73,8 +82,7 @@ def split_subtitle_lines(text: str, max_len: int = 15) -> list[str]:
     return chunks
 
 
-def _write_ass(segments: list[dict], out: Path,
-               font_name: str, fontsize: int, width: int, height: int) -> None:
+def _write_ass(segments: list[dict], out: Path, font_name: str, fontsize: int, width: int, height: int) -> None:
     """生成 ASS 字幕:显式 PlayRes 匹配视频分辨率(libass 对 SRT 用 384x288
     默认画布,FontSize 会被放大数倍),底部居中对齐。
     segments 为 [{text, start, end}](秒),时间轴由调用方给出
@@ -92,9 +100,7 @@ Style: Default,{font_name},{fontsize},&H00FFFFFF,&H000000FF,&H00000000,&H8000000
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = "".join(
-        f"Dialogue: 0,{_ass_ts(seg['start'])},{_ass_ts(seg['end'])},"
-        f"Default,,0,0,0,,{seg['text']}\n"
-        for seg in segments
+        f"Dialogue: 0,{_ass_ts(seg['start'])},{_ass_ts(seg['end'])},Default,,0,0,0,,{seg['text']}\n" for seg in segments
     )
     out.write_text(header + events, encoding="utf-8")
 
@@ -114,7 +120,7 @@ def _pick_bgm(settings: Settings, ctx: StageContext) -> Path | None:
 
 def _pick_font(settings: Settings, ctx: StageContext) -> tuple[Path, str] | None:
     """返回 (字体文件, 字体内部名)。fontTools 读内部名供 libass 匹配。"""
-    from fontTools.ttLib import TTFont  # noqa: PLC0415
+    from fontTools.ttLib import TTFont
 
     cand = ctx.params.get("subtitle_font") or settings.subtitle_font
     font_dir = settings.assets / "font"
@@ -152,7 +158,7 @@ def _pick_bg_image(settings: Settings, bg_opt) -> Path | None:
 
 
 def _split_cover_text(text: str) -> tuple[str, str]:
-    """"第一行,第二行" → (第一行, 第二行),按首个中英文逗号切。"""
+    """ "第一行,第二行" → (第一行, 第二行),按首个中英文逗号切。"""
     for sep in ("，", ","):
         if sep in text:
             first, second = text.split(sep, 1)
@@ -160,8 +166,9 @@ def _split_cover_text(text: str) -> tuple[str, str]:
     return text.strip(), ""
 
 
-def _align_lines_to_asr(lines: list[str], words: list[str],
-                        timestamps: list[list[float]], duration: float) -> list[dict]:
+def _align_lines_to_asr(
+    lines: list[str], words: list[str], timestamps: list[list[float]], duration: float
+) -> list[dict]:
     """把**原文**分句对齐到 ASR 词级时间轴:文本保真(不用 ASR 识别文本),
     只借时间戳。timestamps 单位毫秒(SenseVoice)。对齐失败返回空列表(调用方回退)。"""
     import difflib
@@ -193,12 +200,11 @@ def _align_lines_to_asr(lines: list[str], words: list[str],
     offset = 0
     for line in lines:
         span = range(offset, offset + len(line))
-        times = [(c_start[orig_to_asr[j]], c_end[orig_to_asr[j]])
-                 for j in span if j in orig_to_asr]
+        times = [(c_start[orig_to_asr[j]], c_end[orig_to_asr[j]]) for j in span if j in orig_to_asr]
         if times:
-            segments.append({"text": line,
-                             "start": round(min(t[0] for t in times), 2),
-                             "end": round(max(t[1] for t in times), 2)})
+            segments.append(
+                {"text": line, "start": round(min(t[0] for t in times), 2), "end": round(max(t[1] for t in times), 2)}
+            )
         else:
             segments.append({"text": line, "start": None, "end": None})
         offset += len(line)
@@ -207,10 +213,10 @@ def _align_lines_to_asr(lines: list[str], words: list[str],
     for i, seg in enumerate(segments):
         if seg["start"] is not None:
             continue
-        prev_end = next((segments[j]["end"] for j in range(i - 1, -1, -1)
-                         if segments[j]["start"] is not None), 0.0)
-        next_start = next((segments[j]["start"] for j in range(i + 1, len(segments))
-                           if segments[j]["start"] is not None), duration)
+        prev_end = next((segments[j]["end"] for j in range(i - 1, -1, -1) if segments[j]["start"] is not None), 0.0)
+        next_start = next(
+            (segments[j]["start"] for j in range(i + 1, len(segments)) if segments[j]["start"] is not None), duration
+        )
         seg["start"] = round(prev_end, 2)
         seg["end"] = round(next_start, 2)
     # 相邻句缝隙处理:后句 start 不早于前句 end
@@ -238,9 +244,14 @@ class PostprocessStage(Stage):
         if pp.get("silence_cut", True):
             try:
                 nxt = ctx.stage_dir / "step1_silence.mp4"
-                cut_silence(s, cur, nxt, ctx.stage_dir,
-                            noise_db=float(pp.get("silence_noise_db", -30.0)),
-                            min_dur=float(pp.get("silence_min_dur", 3.0)))
+                cut_silence(
+                    s,
+                    cur,
+                    nxt,
+                    ctx.stage_dir,
+                    noise_db=float(pp.get("silence_noise_db", -30.0)),
+                    min_dur=float(pp.get("silence_min_dur", 3.0)),
+                )
                 cur = nxt
                 silence_applied = True
             except Exception as e:
@@ -257,15 +268,37 @@ class PostprocessStage(Stage):
                 ch = int(pp.get("bg_canvas_h", 1920))
                 fw = int(cw * float(pp.get("bg_fg_ratio", 0.9)))
                 nxt = ctx.stage_dir / "step2_bg.mp4"
-                run_ffmpeg(s, [
-                    "-i", cur.name, "-loop", "1", "-i", str(bg),
-                    "-filter_complex",
-                    f"[1:v]scale={cw}:{ch}[bg];[0:v]scale={fw}:-2[fg];"
-                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1[v]",
-                    "-map", "[v]", "-map", "0:a",
-                    "-c:v", "libx264", "-preset", "superfast", "-crf", "18",
-                    "-pix_fmt", "yuv420p", "-c:a", "aac", nxt.name,
-                ], desc="背景图合成", cwd=ctx.stage_dir)
+                run_ffmpeg(
+                    s,
+                    [
+                        "-i",
+                        cur.name,
+                        "-loop",
+                        "1",
+                        "-i",
+                        str(bg),
+                        "-filter_complex",
+                        f"[1:v]scale={cw}:{ch}[bg];[0:v]scale={fw}:-2[fg];"
+                        f"[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1[v]",
+                        "-map",
+                        "[v]",
+                        "-map",
+                        "0:a",
+                        "-c:v",
+                        "libx264",
+                        "-preset",
+                        "superfast",
+                        "-crf",
+                        "18",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-c:a",
+                        "aac",
+                        nxt.name,
+                    ],
+                    desc="背景图合成",
+                    cwd=ctx.stage_dir,
+                )
                 cur = nxt
 
         # 封面底图来源:第 2 步之后、字幕烧录之前的视频(无字幕帧)
@@ -279,14 +312,15 @@ class PostprocessStage(Stage):
             if segments and font:
                 font_file, font_name = font
                 fontsize = int(pp.get("subtitle_fontsize", s.subtitle_fontsize))
-                _write_ass(segments, ctx.stage_dir / "sub.ass",
-                           font_name, fontsize, vw, vh)
+                _write_ass(segments, ctx.stage_dir / "sub.ass", font_name, fontsize, vw, vh)
                 fontsdir = os.path.relpath(font_file.parent, ctx.stage_dir).replace(os.sep, "/")
                 nxt = ctx.stage_dir / "step3_subtitled.mp4"
-                run_ffmpeg(s, ["-i", cur.name,
-                               "-vf", f"subtitles=sub.ass:fontsdir='{fontsdir}'",
-                               "-c:a", "copy", nxt.name],
-                           desc="字幕烧录", cwd=ctx.stage_dir)
+                run_ffmpeg(
+                    s,
+                    ["-i", cur.name, "-vf", f"subtitles=sub.ass:fontsdir='{fontsdir}'", "-c:a", "copy", nxt.name],
+                    desc="字幕烧录",
+                    cwd=ctx.stage_dir,
+                )
                 cur = nxt
             elif segments:
                 logger.warning("assets/font 无可用字体,跳过字幕烧录")
@@ -297,13 +331,30 @@ class PostprocessStage(Stage):
             if bgm:
                 volume = float(pp.get("bgm_volume", s.bgm_volume))
                 nxt = ctx.stage_dir / "step4_bgm.mp4"
-                run_ffmpeg(s, [
-                    "-i", cur.name, "-stream_loop", "-1", "-i", str(bgm),
-                    "-filter_complex",
-                    f"[1:a]volume={volume}[bgm];[0:a][bgm]amix=inputs=2:duration=first[a]",
-                    "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac",
-                    nxt.name,
-                ], desc="BGM 混音", cwd=ctx.stage_dir)
+                run_ffmpeg(
+                    s,
+                    [
+                        "-i",
+                        cur.name,
+                        "-stream_loop",
+                        "-1",
+                        "-i",
+                        str(bgm),
+                        "-filter_complex",
+                        f"[1:a]volume={volume}[bgm];[0:a][bgm]amix=inputs=2:duration=first[a]",
+                        "-map",
+                        "0:v",
+                        "-map",
+                        "[a]",
+                        "-c:v",
+                        "copy",
+                        "-c:a",
+                        "aac",
+                        nxt.name,
+                    ],
+                    desc="BGM 混音",
+                    cwd=ctx.stage_dir,
+                )
                 cur = nxt
             else:
                 logger.warning("未找到 BGM,输出仅含原音")
@@ -314,7 +365,11 @@ class PostprocessStage(Stage):
             try:
                 nxt = ctx.stage_dir / "step5_watermark.mp4"
                 add_text_watermark(
-                    s, cur, nxt, ctx.stage_dir, str(watermark_text),
+                    s,
+                    cur,
+                    nxt,
+                    ctx.stage_dir,
+                    str(watermark_text),
                     font_dir=s.assets / "font",
                     font_size=int(pp.get("watermark_fontsize", 60)),
                     font_color=pp.get("watermark_color", "white"),
@@ -348,13 +403,15 @@ class PostprocessStage(Stage):
         (ctx.stage_dir / "asr_src.wav").unlink(missing_ok=True)
         return outputs
 
-    def _subtitle_segments(self, ctx: StageContext, cur: Path, duration: float,
-                           silence_applied: bool) -> list[dict]:
+    def _subtitle_segments(self, ctx: StageContext, cur: Path, duration: float, silence_applied: bool) -> list[dict]:
         """字幕分句 [{text, start, end}]: 文本来自原文(rewrite 产物、params.text、直接音频同名 .txt 或 ASR 转写)；
         tts/speech.wav 或 params.audio 存在时用 ASR 词级时间轴对齐，任何异常回退均分时长。"""
         text_file = ctx.job_dir / "rewrite" / "text.txt"
-        text = (text_file.read_text(encoding="utf-8").strip()
-                if text_file.exists() else (ctx.params.get("text") or "").strip())
+        text = (
+            text_file.read_text(encoding="utf-8").strip()
+            if text_file.exists()
+            else (ctx.params.get("text") or "").strip()
+        )
 
         speech: Path | None = None
         if ctx.params.get("audio"):
@@ -376,7 +433,8 @@ class PostprocessStage(Stage):
         # 若未提供文案但有驱动音频，尝试通过 ASR 自动转写字幕文本
         if not text and speech is not None and speech.exists():
             try:
-                from ..providers import get_provider  # noqa: PLC0415
+                from ..providers import get_provider
+
                 asr_res = get_provider("asr", ctx.settings).transcribe(speech)
                 text = (asr_res.get("text") or "").strip()
                 if text:
@@ -387,19 +445,32 @@ class PostprocessStage(Stage):
         lines = split_subtitle_lines(text) if text else []
         if lines and speech is not None and speech.exists():
             try:
-                from ..providers import get_provider  # noqa: PLC0415
+                from ..providers import get_provider
 
                 target = speech
                 if silence_applied:
                     target = ctx.stage_dir / "asr_src.wav"
-                    run_ffmpeg(ctx.settings, [
-                        "-i", cur.name, "-vn", "-acodec", "pcm_s16le",
-                        "-ar", "16000", "-ac", "1", target.name,
-                    ], desc="ASR-提取音频", cwd=ctx.stage_dir)
+                    run_ffmpeg(
+                        ctx.settings,
+                        [
+                            "-i",
+                            cur.name,
+                            "-vn",
+                            "-acodec",
+                            "pcm_s16le",
+                            "-ar",
+                            "16000",
+                            "-ac",
+                            "1",
+                            target.name,
+                        ],
+                        desc="ASR-提取音频",
+                        cwd=ctx.stage_dir,
+                    )
                 result = get_provider("asr", ctx.settings).transcribe(target)
                 segments = _align_lines_to_asr(
-                    lines, result.get("words") or [],
-                    result.get("timestamp") or [], duration)
+                    lines, result.get("words") or [], result.get("timestamp") or [], duration
+                )
                 if segments:
                     logger.info(f"字幕用 ASR 对齐时间轴: {len(segments)} 句")
                     return segments
@@ -409,8 +480,7 @@ class PostprocessStage(Stage):
         if not lines:
             return []
         per = duration / len(lines)
-        return [{"text": line, "start": i * per, "end": (i + 1) * per}
-                for i, line in enumerate(lines)]
+        return [{"text": line, "start": i * per, "end": (i + 1) * per} for i, line in enumerate(lines)]
 
     def _make_cover(self, ctx: StageContext, cover_src: Path, pp: dict) -> Path:
         """抽帧 → 可选多色文字(params["cover_text"]/["cover_highlights"])
@@ -431,7 +501,12 @@ class PostprocessStage(Stage):
                 highlights = [w for w in re.split(r"[,，、\s]+", highlights) if w]
             out_text = ctx.stage_dir / "cover_text.png"
             add_multicolor_text(
-                raw, out_text, first, second, list(highlights), font_file,
+                raw,
+                out_text,
+                first,
+                second,
+                list(highlights),
+                font_file,
                 font_size=int(pp.get("cover_fontsize", 90)),
                 font_color=pp.get("cover_font_color", "#FFFFFF"),
                 highlight_color=pp.get("cover_highlight_color", "#FFD600"),
@@ -443,7 +518,8 @@ class PostprocessStage(Stage):
 
         cover = ctx.stage_dir / "cover.png"
         add_ai_watermark(
-            img, cover,
+            img,
+            cover,
             text=ai_text,
             font_dir=s.assets / "font",
             font_size=int(pp.get("cover_ai_fontsize", 40)),

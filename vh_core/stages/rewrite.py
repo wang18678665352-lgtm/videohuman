@@ -63,9 +63,7 @@ class RewriteStage(Stage):
             return False
         text = (ctx.params.get("text") or "").strip()
         transcript = ctx.job_dir / "transcribe" / "transcript.txt"
-        if not text and not transcript.exists():
-            return False
-        return True
+        return bool(text) or transcript.exists()
 
     def run(self, ctx: StageContext) -> dict[str, Path]:
         # 输入优先级:params.text(直给) > transcribe 产物(克隆流程)
@@ -89,10 +87,12 @@ class RewriteStage(Stage):
         return {"text": out}
 
     def _llm_rewrite(self, ctx: StageContext, text: str, key: str) -> str:
-        from openai import OpenAI  # noqa: PLC0415
+        from openai import OpenAI
 
         s = ctx.settings
-        client = OpenAI(api_key=key, base_url=s.llm_base_url.strip('"'))
+        # config.toml/env 里常带着引号书写,统一剥掉;不设 base_url 时 SDK 默认走官方地址
+        base_url = s.llm_base_url.strip().strip("\"'") or None
+        client = OpenAI(api_key=key, base_url=base_url)
         try:
             completion = client.chat.completions.create(
                 model=s.llm_model,

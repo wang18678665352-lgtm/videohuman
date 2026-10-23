@@ -40,7 +40,7 @@ pipeline: Pipeline = build_pipeline(settings)
 
 # ---------------------------------------------------------------- 任务队列
 
-_job_q: "queue.Queue[dict[str, Any]]" = queue.Queue()
+_job_q: queue.Queue[dict[str, Any]] = queue.Queue()
 _states: dict[str, dict[str, Any]] = {}  # job_id -> {queue_status, error, submitted_at}
 _states_lock = threading.Lock()
 
@@ -63,13 +63,16 @@ def _job_worker() -> None:
         job_id = item["job_id"]
         _set_state(job_id, queue_status="running", error=None)
         try:
-            run_job(JobSpec(job_id=job_id, params=item["params"]),
-                    settings=settings, pipeline=pipeline,
-                    only=item.get("only"), resume=item.get("resume", True))
+            run_job(
+                JobSpec(job_id=job_id, params=item["params"]),
+                settings=settings,
+                pipeline=pipeline,
+                only=item.get("only"),
+                resume=item.get("resume", True),
+            )
             _set_state(job_id, queue_status="done")
         except PipelineStageError as e:
-            _set_state(job_id, queue_status="failed",
-                       error=f"stage '{e.stage_name}': {e.cause}")
+            _set_state(job_id, queue_status="failed", error=f"stage '{e.stage_name}': {e.cause}")
         except Exception as e:
             logger.exception(f"[{job_id}] 队列任务失败")
             _set_state(job_id, queue_status="failed", error=str(e))
@@ -84,8 +87,7 @@ def _save_spec(job_id: str, params: dict[str, Any]) -> None:
     """服务端提交参数落盘,供重跑/详情页展示(CLI 建的 job 可能没有)。"""
     p = settings.workspace / job_id / "spec.server.json"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(params, ensure_ascii=False, indent=2, default=str),
-                 encoding="utf-8")
+    p.write_text(json.dumps(params, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
 
 def _load_spec(job_id: str) -> dict[str, Any]:
@@ -97,18 +99,19 @@ def _load_spec(job_id: str) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- 请求模型
 
+
 class JobCreate(BaseModel):
     job_id: str | None = None
-    audio: str | None = None               # 直接驱动音频路径(跳过 TTS,直接对口型)
-    text: str | None = None                # 口播文案(文案直给模式)或直接音频的配套字幕
-    share_url: str | None = None           # 抖音分享链接(克隆模式)
+    audio: str | None = None  # 直接驱动音频路径(跳过 TTS,直接对口型)
+    text: str | None = None  # 口播文案(文案直给模式)或直接音频的配套字幕
+    share_url: str | None = None  # 抖音分享链接(克隆模式)
     ref_audio: str | None = None
     ref_text: str | None = None
     avatar_video: str | None = None
     avatar_engine: str | None = None
     tts_engine: str | None = None
-    tts: dict[str, Any] | None = None      # TTS 透传参数(本地引擎)
-    avatar: dict[str, Any] | None = None   # 数字人透传参数(本地引擎)
+    tts: dict[str, Any] | None = None  # TTS 透传参数(本地引擎)
+    avatar: dict[str, Any] | None = None  # 数字人透传参数(本地引擎)
     publish_platforms: list[str] | None = None
     publish_title: str | None = None
     publish_tags: list[str] | None = None
@@ -125,7 +128,10 @@ class JobRun(BaseModel):
 
 app = FastAPI(title="videohuman 工作台", version="0.1.0")
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 简单 token 鉴权:设置环境变量 VH_WEB_TOKEN 即启用(公网暴露时务必设置),
@@ -138,7 +144,7 @@ async def token_auth(request, call_next):
     if _WEB_TOKEN and request.url.path.startswith("/api/"):
         token = request.headers.get("X-VH-Token") or request.query_params.get("token") or ""
         if token != _WEB_TOKEN:
-            from fastapi.responses import JSONResponse  # noqa: PLC0415
+            from fastapi.responses import JSONResponse
 
             return JSONResponse({"detail": "未授权:token 缺失或错误"}, status_code=401)
     return await call_next(request)
@@ -169,19 +175,19 @@ def list_assets() -> dict[str, Any]:
     def _rel(p: Path) -> str:
         return p.relative_to(PROJECT_ROOT).as_posix()
 
-    audios = sorted((_rel(p) for p in assets.iterdir()
-                     if p.is_file() and p.suffix.lower() in AUDIO_EXTS))
-    videos = sorted((_rel(p) for p in assets.iterdir()
-                     if p.is_file() and p.suffix.lower() in VIDEO_EXTS))
+    audios = sorted(_rel(p) for p in assets.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTS)
+    videos = sorted(_rel(p) for p in assets.iterdir() if p.is_file() and p.suffix.lower() in VIDEO_EXTS)
     bgm_dir = assets / "bgm"
-    bgms = sorted((_rel(p) for p in bgm_dir.iterdir()
-                   if p.is_file() and p.suffix.lower() in AUDIO_EXTS)) if bgm_dir.is_dir() else []
+    bgms = (
+        sorted(_rel(p) for p in bgm_dir.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTS)
+        if bgm_dir.is_dir()
+        else []
+    )
     return {"audios": audios, "videos": videos, "bgms": bgms}
 
 
 @app.post("/api/assets")
-async def upload_asset(file: UploadFile,
-                       kind: str = Query(..., pattern="^(audio|video|bgm)$")):
+async def upload_asset(file: UploadFile, kind: str = Query(..., pattern="^(audio|video|bgm)$")):
     ext = Path(file.filename or "").suffix.lower()
     allowed = AUDIO_EXTS if kind in ("audio", "bgm") else VIDEO_EXTS
     if ext not in allowed:
@@ -207,8 +213,8 @@ def asset_file(path: str = Query(...)) -> FileResponse:
 @app.get("/api/asset-ref-text")
 def asset_ref_text(path: str = Query(...)) -> dict[str, Any]:
     """参考音文本:同名 .txt sidecar 直接读;没有就用 ASR 识别(限制在素材目录内)。"""
-    from vh_core.providers import get_provider  # noqa: PLC0415
-    from vh_core.stages.tts import _clean_ref_text  # noqa: PLC0415
+    from vh_core.providers import get_provider
+    from vh_core.stages.tts import _clean_ref_text
 
     base = settings.assets.resolve()
     target = (PROJECT_ROOT / path).resolve()
@@ -230,8 +236,9 @@ def _job_summary(job_dir: Path) -> dict[str, Any]:
     if manifest_path.exists():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError) as e:
+            # 损坏/半写入的 manifest 不应让任务列表整体 500,降级成空清单
+            logger.warning(f"[{job_id}] manifest.json 读取失败,按空清单处理: {e}")
     stages = manifest.get("stages", {})
     state = _get_state(job_id)
     status = state.get("queue_status")
@@ -284,8 +291,7 @@ def create_job(body: JobCreate) -> dict[str, Any]:
     if body.publish_tags is not None:
         params["publish_tags"] = body.publish_tags
     _save_spec(job_id, params)
-    _set_state(job_id, queue_status="queued", error=None,
-               submitted_at=time.time())
+    _set_state(job_id, queue_status="queued", error=None, submitted_at=time.time())
     _job_q.put({"job_id": job_id, "params": params, "resume": True})
     return {"ok": True, "job_id": job_id}
 
@@ -297,8 +303,7 @@ def job_detail(job_id: str) -> dict[str, Any]:
         raise HTTPException(404, f"任务不存在: {job_id}")
     summary = _job_summary(job_dir)
     manifest_path = job_dir / "manifest.json"
-    manifest = (json.loads(manifest_path.read_text(encoding="utf-8"))
-                if manifest_path.exists() else {})
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
     summary["manifest"] = manifest
     summary["spec"] = _load_spec(job_id)
     return summary
@@ -315,10 +320,8 @@ def rerun_job(job_id: str, body: JobRun) -> dict[str, Any]:
     params.update(body.params or {})
     if body.params:
         _save_spec(job_id, params)
-    _set_state(job_id, queue_status="queued", error=None,
-               submitted_at=time.time())
-    _job_q.put({"job_id": job_id, "params": params,
-                "only": [body.only] if body.only else None, "resume": body.resume})
+    _set_state(job_id, queue_status="queued", error=None, submitted_at=time.time())
+    _job_q.put({"job_id": job_id, "params": params, "only": [body.only] if body.only else None, "resume": body.resume})
     return {"ok": True, "job_id": job_id}
 
 
@@ -359,8 +362,7 @@ def login_douyin_api() -> dict[str, Any]:
 
 @app.get("/api/login/douyin/status")
 def login_douyin_status() -> dict[str, Any]:
-    return {**_login_state,
-            "cookie_exists": (settings.publish_cookies / "douyin.json").exists()}
+    return {**_login_state, "cookie_exists": (settings.publish_cookies / "douyin.json").exists()}
 
 
 # ---------------------------------------------------------------- 前端静态托管

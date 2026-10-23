@@ -8,16 +8,15 @@
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import re
 import shutil
 import subprocess
 import wave
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Sequence
 
 from loguru import logger
 
@@ -29,7 +28,7 @@ ENV_FFMPEG = "VH_FFMPEG"
 @lru_cache(maxsize=1)
 def _imageio_ffmpeg_exe() -> str | None:
     try:
-        import imageio_ffmpeg  # noqa: PLC0415
+        import imageio_ffmpeg
 
         return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
@@ -48,20 +47,15 @@ def get_ffmpeg() -> str:
     if builtin:
         logger.debug(f"ffmpeg 走 imageio-ffmpeg 内置: {builtin}")
         return builtin
-    raise RuntimeError(
-        f"找不到 ffmpeg(env {ENV_FFMPEG} 未设置/无效,PATH 无 ffmpeg,"
-        "imageio-ffmpeg 也不可用)"
-    )
+    raise RuntimeError(f"找不到 ffmpeg(env {ENV_FFMPEG} 未设置/无效,PATH 无 ffmpeg,imageio-ffmpeg 也不可用)")
 
 
-def run_ffmpeg(args: list[str], desc: str = "", cwd=None,
-               ffmpeg: str | None = None) -> None:
+def run_ffmpeg(args: list[str], desc: str = "", cwd=None, ffmpeg: str | None = None) -> None:
     """执行 ffmpeg(-y 覆盖输出、-nostdin 防交互挂起),失败抛 RuntimeError 并带 stderr 尾部。"""
     exe = ffmpeg or get_ffmpeg()
     cmd = [exe, "-hide_banner", "-y", "-nostdin", *args]
     logger.debug(f"ffmpeg {desc}: {' '.join(cmd)}")
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", cwd=cwd)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=cwd)
     if r.returncode != 0:
         tail = (r.stderr or "").strip().splitlines()[-5:]
         raise RuntimeError(f"ffmpeg {desc} 失败(code={r.returncode}): {' | '.join(tail)}")
@@ -69,11 +63,13 @@ def run_ffmpeg(args: list[str], desc: str = "", cwd=None,
 
 # ------------------------------------------------------------------ 探测
 
+
 def probe_video(video: Path, ffmpeg: str | None = None) -> tuple[float, int, int]:
     """返回 (时长秒, 宽, 高)。"""
     exe = ffmpeg or get_ffmpeg()
-    r = subprocess.run([exe, "-hide_banner", "-i", str(video)],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = subprocess.run(
+        [exe, "-hide_banner", "-i", str(video)], capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
     err = r.stderr or ""
     m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", err)
     if not m:
@@ -90,7 +86,7 @@ def probe_video(video: Path, ffmpeg: str | None = None) -> tuple[float, int, int
 # 切除参数(毫秒级常量):静音段内保留 20ms 头尾,切点落在静音内直接硬切。
 # 口播视频在静音处姿态/声音都归零,硬切即可;旧版 500ms 交叉淡化会把语音尾巴
 # 和下一句开头叠在一起(画面双影 + 声音叠音),已废弃。
-MAX_SILENCE_LENGTH = 3.0   # 超过该时长的静音才切除
+MAX_SILENCE_LENGTH = 3.0  # 超过该时长的静音才切除
 START_SILENCE_KEEP = 0.02
 END_SILENCE_KEEP = 0.02
 FADE_LENGTH = 0.5  # 已废弃,仅为兼容旧导出保留(vh_core.postproc.silence re-export)
@@ -98,7 +94,7 @@ FADE_LENGTH = 0.5  # 已废弃,仅为兼容旧导出保留(vh_core.postproc.sile
 VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".webm", ".m4v"}
 
 try:
-    import librosa  # noqa: F401
+    import librosa
     import numpy as np
 
     _LIBROSA_OK = True
@@ -107,25 +103,23 @@ except ImportError:  # pragma: no cover
 
 
 def _extract_audio(src: Path, wav: Path, ffmpeg: str | None = None) -> None:
-    run_ffmpeg(["-i", str(src), "-vn", "-acodec", "pcm_s16le",
-                "-ar", "44100", "-ac", "1", str(wav)],
-               desc="静音检测-提取音频", ffmpeg=ffmpeg)
+    run_ffmpeg(
+        ["-i", str(src), "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "1", str(wav)],
+        desc="静音检测-提取音频",
+        ffmpeg=ffmpeg,
+    )
 
 
-def _detect_silence_librosa(audio_path: Path, noise_db: float,
-                            min_dur: float) -> list[dict]:
+def _detect_silence_librosa(audio_path: Path, noise_db: float, min_dur: float) -> list[dict]:
     """RMS 能量 + 零交叉率 + 频谱质心综合判定。"""
     audio_data, sr = librosa.load(str(audio_path), sr=None)
-    frame_length = int(0.025 * sr)   # 25ms 帧长
-    hop_length = int(0.01 * sr)      # 10ms 跳跃
+    frame_length = int(0.025 * sr)  # 25ms 帧长
+    hop_length = int(0.01 * sr)  # 10ms 跳跃
 
-    rms = librosa.feature.rms(y=audio_data, frame_length=frame_length,
-                              hop_length=hop_length)[0]
+    rms = librosa.feature.rms(y=audio_data, frame_length=frame_length, hop_length=hop_length)[0]
     rms_db = librosa.amplitude_to_db(rms, ref=1.0)
-    zcr = librosa.feature.zero_crossing_rate(
-        audio_data, frame_length=frame_length, hop_length=hop_length)[0]
-    centroids = librosa.feature.spectral_centroid(
-        y=audio_data, sr=sr, hop_length=hop_length)[0]
+    zcr = librosa.feature.zero_crossing_rate(audio_data, frame_length=frame_length, hop_length=hop_length)[0]
+    centroids = librosa.feature.spectral_centroid(y=audio_data, sr=sr, hop_length=hop_length)[0]
 
     low_energy = rms_db < noise_db
     low_zcr = zcr < np.percentile(zcr, 30)
@@ -133,16 +127,13 @@ def _detect_silence_librosa(audio_path: Path, noise_db: float,
     near_threshold = rms_db < (noise_db + 10)
     silence_frames = low_energy | (near_threshold & low_zcr & low_centroid)
 
-    frame_times = librosa.frames_to_time(np.arange(len(silence_frames)),
-                                         sr=sr, hop_length=hop_length)
-    return _frames_to_segments(silence_frames, frame_times,
-                               hop_length / sr, min_dur)
+    frame_times = librosa.frames_to_time(np.arange(len(silence_frames)), sr=sr, hop_length=hop_length)
+    return _frames_to_segments(silence_frames, frame_times, hop_length / sr, min_dur)
 
 
-def _detect_silence_numpy(wav_path: Path, noise_db: float,
-                          min_dur: float) -> list[dict]:
+def _detect_silence_numpy(wav_path: Path, noise_db: float, min_dur: float) -> list[dict]:
     """无 librosa 时的回退:stdlib wave + numpy 纯 RMS 能量门限。"""
-    import numpy as np  # noqa: PLC0415
+    import numpy as np
 
     with wave.open(str(wav_path), "rb") as wf:
         sr = wf.getframerate()
@@ -153,19 +144,19 @@ def _detect_silence_numpy(wav_path: Path, noise_db: float,
     frame_length = int(0.025 * sr)
     hop_length = int(0.01 * sr)
     n_frames = 1 + max(0, (len(samples) - frame_length) // hop_length)
-    rms = np.array([
-        np.sqrt(np.mean(samples[i * hop_length:i * hop_length + frame_length] ** 2) + 1e-12)
-        for i in range(n_frames)
-    ])
+    rms = np.array(
+        [
+            np.sqrt(np.mean(samples[i * hop_length : i * hop_length + frame_length] ** 2) + 1e-12)
+            for i in range(n_frames)
+        ]
+    )
     rms_db = 20 * np.log10(rms + 1e-12)
     silence_frames = rms_db < noise_db
     frame_times = np.arange(n_frames) * hop_length / sr
-    return _frames_to_segments(silence_frames, frame_times,
-                               hop_length / sr, min_dur)
+    return _frames_to_segments(silence_frames, frame_times, hop_length / sr, min_dur)
 
 
-def _frames_to_segments(silence_frames, frame_times, hop_sec: float,
-                        min_dur: float) -> list[dict]:
+def _frames_to_segments(silence_frames, frame_times, hop_sec: float, min_dur: float) -> list[dict]:
     """帧级布尔序列 → 连续静音段 [{start, end, duration}](毫秒精度)。"""
     segments: list[dict] = []
     in_silence = False
@@ -178,22 +169,19 @@ def _frames_to_segments(silence_frames, frame_times, hop_sec: float,
         elif not is_silent and in_silence:
             dur_ms = now_ms - start_ms
             if dur_ms >= min_dur * 1000:
-                segments.append({"start": start_ms / 1000.0, "end": now_ms / 1000.0,
-                                 "duration": dur_ms / 1000.0})
+                segments.append({"start": start_ms / 1000.0, "end": now_ms / 1000.0, "duration": dur_ms / 1000.0})
             in_silence = False
     if in_silence and start_ms is not None:
         end_ms = int((frame_times[-1] + hop_sec) * 1000)
         dur_ms = end_ms - start_ms
         if dur_ms >= min_dur * 1000:
-            segments.append({"start": start_ms / 1000.0, "end": end_ms / 1000.0,
-                             "duration": dur_ms / 1000.0})
+            segments.append({"start": start_ms / 1000.0, "end": end_ms / 1000.0, "duration": dur_ms / 1000.0})
     return segments
 
 
-def detect_silences(src: Path, work_dir: Path,
-                    min_dur: float = MAX_SILENCE_LENGTH,
-                    noise_db: float = -30.0,
-                    ffmpeg: str | None = None) -> list[dict]:
+def detect_silences(
+    src: Path, work_dir: Path, min_dur: float = MAX_SILENCE_LENGTH, noise_db: float = -30.0, ffmpeg: str | None = None
+) -> list[dict]:
     """检测音视频中的静音段,结果缓存到 work_dir(JSON)。"""
     src, work_dir = Path(src), Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -228,17 +216,19 @@ def detect_silences(src: Path, work_dir: Path,
             wav.unlink()
 
     for i, s in enumerate(segments):
-        logger.debug(f"静音段 {i + 1}: {s['start']:.3f}s - {s['end']:.3f}s "
-                     f"(时长 {s['duration']:.3f}s)")
-    cache.write_text(json.dumps(segments, ensure_ascii=False, indent=2),
-                     encoding="utf-8")
+        logger.debug(f"静音段 {i + 1}: {s['start']:.3f}s - {s['end']:.3f}s (时长 {s['duration']:.3f}s)")
+    cache.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
     return segments
 
 
-def cut_silence(video: Path, output: Path, work_dir: Path,
-                noise_db: float = -30.0,
-                min_dur: float = MAX_SILENCE_LENGTH,
-                ffmpeg: str | None = None) -> Path:
+def cut_silence(
+    video: Path,
+    output: Path,
+    work_dir: Path,
+    noise_db: float = -30.0,
+    min_dur: float = MAX_SILENCE_LENGTH,
+    ffmpeg: str | None = None,
+) -> Path:
     """切除静音段并硬切拼接(切点位于静音内 20ms 处,无叠化)。
     video/output 均须位于 work_dir 内(内部以相对路径 + cwd=work_dir 执行,
     绕开 Windows 盘符滤镜转义)。无静音段时直接复制,返回 output。"""
@@ -265,8 +255,7 @@ def cut_silence(video: Path, output: Path, work_dir: Path,
 
     ss = _StartStream()
     combined = _InputStream(ss)
-    streams = [_PtsTrim(combined, start=a, end=b)
-               for a, b in keeps if b - a > 0.001]
+    streams = [_PtsTrim(combined, start=a, end=b) for a, b in keeps if b - a > 0.001]
     if not streams:
         logger.warning("静音切除后无有效保留段,原样保留")
         output.write_bytes(video.read_bytes())
@@ -276,17 +265,35 @@ def cut_silence(video: Path, output: Path, work_dir: Path,
     filter_list: list[str] = []
     concat.filters(filter_list)
     cfs = work_dir / f"{video.stem}.cfs"
-    with io.open(cfs, mode="wt", encoding="utf-8") as f:
+    with open(cfs, mode="w", encoding="utf-8") as f:
         f.write(";".join(filter_list))
 
-    run_ffmpeg([
-        "-i", video.name,
-        "-filter_complex_script", cfs.name,
-        "-map", concat.video_id, "-map", concat.audio_id,
-        "-c:v", "libx264", "-preset", "superfast", "-crf", "18",
-        "-c:a", "aac", "-pix_fmt", "yuv420p",
-        output.name,
-    ], desc="静音切除", cwd=work_dir, ffmpeg=exe)
+    run_ffmpeg(
+        [
+            "-i",
+            video.name,
+            "-filter_complex_script",
+            cfs.name,
+            "-map",
+            concat.video_id,
+            "-map",
+            concat.audio_id,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "superfast",
+            "-crf",
+            "18",
+            "-c:a",
+            "aac",
+            "-pix_fmt",
+            "yuv420p",
+            output.name,
+        ],
+        desc="静音切除",
+        cwd=work_dir,
+        ffmpeg=exe,
+    )
     cfs.unlink(missing_ok=True)
     return output
 
@@ -349,10 +356,12 @@ class _PtsTrim(_SubStream):
     def filters(self, filter_list: list[str]) -> None:
         self.src.filters(filter_list)
         parms = ":".join(f"{k}={v}" for k, v in self.kwargs.items())
-        filter_list.extend([
-            f"{self.src.video_id}trim={parms},setpts=PTS-STARTPTS{self.video_id}",
-            f"{self.src.audio_id}atrim={parms},asetpts=PTS-STARTPTS{self.audio_id}",
-        ])
+        filter_list.extend(
+            [
+                f"{self.src.video_id}trim={parms},setpts=PTS-STARTPTS{self.video_id}",
+                f"{self.src.audio_id}atrim={parms},asetpts=PTS-STARTPTS{self.audio_id}",
+            ]
+        )
 
     def duration(self) -> float:
         return self.kwargs["end"] - self.kwargs["start"]
@@ -371,26 +380,24 @@ class _Concat(_BaseStream):
         for s in self.streams:
             s.filters(filter_list)
             ids.extend([s.video_id, s.audio_id])
-        filter_list.append(
-            f"{''.join(ids)}concat=n={len(self.streams)}:v=1:a=1"
-            f"{self.video_id}{self.audio_id}"
-        )
+        filter_list.append(f"{''.join(ids)}concat=n={len(self.streams)}:v=1:a=1{self.video_id}{self.audio_id}")
 
 
 # ------------------------------------------------------------------ 封面
 
-def extract_frame(video: Path, output: Path,
-                  frame_time: float | None = None,
-                  ffmpeg: str | None = None) -> Path:
+
+def extract_frame(video: Path, output: Path, frame_time: float | None = None, ffmpeg: str | None = None) -> Path:
     """抽视频一帧做封面底图;frame_time 缺省取时长中点。"""
     video, output = Path(video), Path(output)
     exe = ffmpeg or get_ffmpeg()
     if frame_time is None:
         duration, _, _ = probe_video(video, ffmpeg=exe)
         frame_time = duration / 2
-    run_ffmpeg(["-ss", str(frame_time), "-i", str(video),
-                "-vframes", "1", "-q:v", "2", str(output)],
-               desc="封面抽帧", ffmpeg=exe)
+    run_ffmpeg(
+        ["-ss", str(frame_time), "-i", str(video), "-vframes", "1", "-q:v", "2", str(output)],
+        desc="封面抽帧",
+        ffmpeg=exe,
+    )
     return output
 
 
@@ -399,19 +406,22 @@ def _hex_to_rgb(color: str) -> tuple[int, int, int]:
     c = color.strip()
     try:
         if c.startswith("rgb"):
-            vals = c[c.index("(") + 1:c.index(")")].split(",")
+            vals = c[c.index("(") + 1 : c.index(")")].split(",")
             return tuple(int(float(v.strip())) for v in vals[:3])  # type: ignore[return-value]
         c = c.lstrip("#")
         if len(c) != 6:
             return (0, 0, 0)
-        return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+        return tuple(int(c[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
     except (ValueError, IndexError):
         return (0, 0, 0)
 
 
-def _split_highlights(line: str, highlight_words: list[str],
-                      font_color: str, highlight_color: str,
-                      ) -> list[tuple[str, str]]:
+def _split_highlights(
+    line: str,
+    highlight_words: list[str],
+    font_color: str,
+    highlight_color: str,
+) -> list[tuple[str, str]]:
     """把一行文案按高亮词切成 [(片段, 颜色)];高亮词按长度降序替换为标记,
     避免短词抢先匹配。"""
     markers: dict[str, str] = {}
@@ -442,19 +452,23 @@ def _split_highlights(line: str, highlight_words: list[str],
     return [(seg, color) for seg, color in segments if seg]
 
 
-def add_multicolor_text(image_path: Path, output_path: Path,
-                        first_line: str, second_line: str,
-                        highlight_words: list[str] | None,
-                        font_path: Path,
-                        font_size: int = 90,
-                        font_color: str = "#FFFFFF",
-                        highlight_color: str = "#FFD600",
-                        outline_color: str = "#000000",
-                        outline_size: int = 4,
-                        position: str = "bottom") -> Path:
+def add_multicolor_text(
+    image_path: Path,
+    output_path: Path,
+    first_line: str,
+    second_line: str,
+    highlight_words: list[str] | None,
+    font_path: Path,
+    font_size: int = 90,
+    font_color: str = "#FFFFFF",
+    highlight_color: str = "#FFD600",
+    outline_color: str = "#000000",
+    outline_size: int = 4,
+    position: str = "bottom",
+) -> Path:
     """在封面底图上画两行(可单行)多色文字,高亮词分色,整体水平居中。
     first_line/second_line 都为空时原样复制底图到 output_path。"""
-    from PIL import Image, ImageDraw, ImageFont  # noqa: PLC0415
+    from PIL import Image, ImageDraw, ImageFont
 
     image_path, output_path = Path(image_path), Path(output_path)
     if not first_line.strip() and not second_line.strip():
@@ -473,8 +487,7 @@ def add_multicolor_text(image_path: Path, output_path: Path,
             lines.append(_split_highlights(line, words, font_color, highlight_color))
 
     line_height = font_size * 1.2
-    line_widths = [sum(draw.textlength(seg, font=font) for seg, _ in line)
-                   for line in lines]
+    line_widths = [sum(draw.textlength(seg, font=font) for seg, _ in line) for line in lines]
     total_height = len(lines) * line_height
     if position == "top":
         y = h * 0.1
@@ -514,7 +527,7 @@ _POSITIONS = {
 def _has_glyphs(font_file: Path, text: str) -> bool:
     """检查字体 cmap 是否覆盖 text 的全部字符(艺术字库字符集不全时
     drawtext 会渲染成豆腐块)。"""
-    from fontTools.ttLib import TTFont  # noqa: PLC0415
+    from fontTools.ttLib import TTFont
 
     tt = TTFont(str(font_file), fontNumber=0, lazy=True)
     try:
@@ -524,12 +537,11 @@ def _has_glyphs(font_file: Path, text: str) -> bool:
         tt.close()
 
 
-def pick_font_file(font_dir: Path, preferred: str = "",
-                   sample_text: str = "") -> Path | None:
+def pick_font_file(font_dir: Path, preferred: str = "", sample_text: str = "") -> Path | None:
     """从字体目录挑一个可用字体文件(fontTools 验证可读)。优先 .ttf/.otf
     (drawtext 与 PIL 对 .ttc 支持都不如单文件字体稳);
     给了 sample_text 时跳过字形覆盖不全的字体。"""
-    from fontTools.ttLib import TTFont  # noqa: PLC0415
+    from fontTools.ttLib import TTFont
 
     font_dir = Path(font_dir)
     files: list[Path] = []
@@ -539,8 +551,9 @@ def pick_font_file(font_dir: Path, preferred: str = "",
             files = [p]
     if not files and font_dir.is_dir():
         all_fonts = sorted(f for f in font_dir.iterdir() if f.suffix.lower() in FONT_EXTS)
-        files = [f for f in all_fonts if f.suffix.lower() != ".ttc"] + \
-                [f for f in all_fonts if f.suffix.lower() == ".ttc"]
+        files = [f for f in all_fonts if f.suffix.lower() != ".ttc"] + [
+            f for f in all_fonts if f.suffix.lower() == ".ttc"
+        ]
     for f in files:
         try:
             tt = TTFont(str(f), fontNumber=0, lazy=True)
@@ -557,11 +570,18 @@ def pick_font_file(font_dir: Path, preferred: str = "",
     return None
 
 
-def add_text_watermark(video: Path, output: Path,
-                       work_dir: Path, text: str, font_dir: Path,
-                       font_size: int = 60, font_color: str = "white",
-                       position: str = "top_right", margin: int = 40,
-                       ffmpeg: str | None = None) -> Path:
+def add_text_watermark(
+    video: Path,
+    output: Path,
+    work_dir: Path,
+    text: str,
+    font_dir: Path,
+    font_size: int = 60,
+    font_color: str = "white",
+    position: str = "top_right",
+    margin: int = 40,
+    ffmpeg: str | None = None,
+) -> Path:
     """给视频右上角(默认)加文字水印,音频直拷。video/output 须位于 work_dir。
     drawtext 用 textfile= 方案(文本写临时文件)绕开转义;fontfile 用相对
     work_dir 的路径,绕开 Windows 盘符冒号被当滤镜分隔符的问题。"""
@@ -578,27 +598,52 @@ def add_text_watermark(video: Path, output: Path,
     text_file = work_dir / "watermark.txt"
     text_file.write_text(text, encoding="utf-8")
     coords = _POSITIONS.get(position, _POSITIONS["top_right"]).format(m=margin)
-    vf = (f"drawtext=textfile='{text_file.name}':fontfile='{font_local.name}':"
-          f"fontsize={font_size}:fontcolor={font_color}:{coords}:"
-          f"box=1:boxcolor=black@0.3:boxborderw=5")
+    vf = (
+        f"drawtext=textfile='{text_file.name}':fontfile='{font_local.name}':"
+        f"fontsize={font_size}:fontcolor={font_color}:{coords}:"
+        f"box=1:boxcolor=black@0.3:boxborderw=5"
+    )
 
-    run_ffmpeg(["-i", video.name, "-vf", vf,
-                "-c:v", "libx264", "-preset", "superfast", "-crf", "18",
-                "-pix_fmt", "yuv420p", "-c:a", "copy", output.name],
-               desc="视频水印", cwd=work_dir, ffmpeg=ffmpeg)
+    run_ffmpeg(
+        [
+            "-i",
+            video.name,
+            "-vf",
+            vf,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "superfast",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "copy",
+            output.name,
+        ],
+        desc="视频水印",
+        cwd=work_dir,
+        ffmpeg=ffmpeg,
+    )
     text_file.unlink(missing_ok=True)
     font_local.unlink(missing_ok=True)
     return output
 
 
-def add_ai_watermark(image_path: Path, output_path: Path,
-                     text: str = "此封面为AI生成",
-                     font_dir: Path | None = None,
-                     font_size: int = 40, font_color: str = "white",
-                     position: str = "top_right", margin: int = 30) -> Path:
+def add_ai_watermark(
+    image_path: Path,
+    output_path: Path,
+    text: str = "此封面为AI生成",
+    font_dir: Path | None = None,
+    font_size: int = 40,
+    font_color: str = "white",
+    position: str = "top_right",
+    margin: int = 30,
+) -> Path:
     """PIL 给封面图打 AI 标识(黑描边白字),写 output_path,不改原图。
     找不到字体时用 PIL 默认字体兜底。"""
-    from PIL import Image, ImageDraw, ImageFont  # noqa: PLC0415
+    from PIL import Image, ImageDraw, ImageFont
 
     image_path, output_path = Path(image_path), Path(output_path)
     image = Image.open(image_path)
@@ -638,9 +683,18 @@ def add_ai_watermark(image_path: Path, output_path: Path,
 
 # ------------------------------------------------------------------ 字幕
 
+# 句末标点集合:字幕分句后要把句尾的标点串(如 "。。。")整段剥掉
+_TRAILING_PUNCT = ",。!?!;;"
+
+
+def _strip_trailing_punct(seg: str) -> str:
+    """剥掉句尾连续的标点(参数是字符集,与 str.strip 语义不同,故单列成函数)。"""
+    return seg.rstrip(_TRAILING_PUNCT)
+
+
 def _ass_ts(t: float) -> str:
     """秒 → ASS 时间戳 h:mm:ss.cc。"""
-    ms = int(round(t * 1000))
+    ms = round(t * 1000)
     h, ms = divmod(ms, 3600_000)
     m, ms = divmod(ms, 60_000)
     s, cs = divmod(ms, 1000)
@@ -652,7 +706,7 @@ def split_subtitle_lines(text: str, max_len: int = 15) -> list[str]:
     chunks: list[str] = []
     for raw in text.splitlines():
         for seg in re.split(r"(?<=[,。!?!;;])", raw.strip()):
-            seg = seg.strip().rstrip(",。!?!;;")
+            seg = _strip_trailing_punct(seg)
             if not seg:
                 continue
             while len(seg) > max_len:
@@ -667,12 +721,10 @@ def even_subtitle_segments(lines: Sequence[str], duration: float) -> list[dict]:
     if not lines:
         return []
     per = duration / len(lines)
-    return [{"text": line, "start": i * per, "end": (i + 1) * per}
-            for i, line in enumerate(lines)]
+    return [{"text": line, "start": i * per, "end": (i + 1) * per} for i, line in enumerate(lines)]
 
 
-def write_ass(segments: list[dict], out: Path,
-              font_name: str, fontsize: int, width: int, height: int) -> None:
+def write_ass(segments: list[dict], out: Path, font_name: str, fontsize: int, width: int, height: int) -> None:
     """生成 ASS 字幕:显式 PlayRes 匹配视频分辨率(libass 对 SRT 用 384x288
     默认画布,FontSize 会被放大数倍),底部居中对齐。
     segments 为 [{text, start, end}](秒),时间轴由调用方给出。"""
@@ -689,15 +741,13 @@ Style: Default,{font_name},{fontsize},&H00FFFFFF,&H000000FF,&H00000000,&H8000000
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = "".join(
-        f"Dialogue: 0,{_ass_ts(seg['start'])},{_ass_ts(seg['end'])},"
-        f"Default,,0,0,0,,{seg['text']}\n"
-        for seg in segments
+        f"Dialogue: 0,{_ass_ts(seg['start'])},{_ass_ts(seg['end'])},Default,,0,0,0,,{seg['text']}\n" for seg in segments
     )
     Path(out).write_text(header + events, encoding="utf-8")
 
 
 def _split_cover_text(text: str) -> tuple[str, str]:
-    """"第一行,第二行" → (第一行, 第二行),按首个中英文逗号切。"""
+    """ "第一行,第二行" → (第一行, 第二行),按首个中英文逗号切。"""
     for sep in ("，", ","):
         if sep in text:
             first, second = text.split(sep, 1)
@@ -707,7 +757,7 @@ def _split_cover_text(text: str) -> tuple[str, str]:
 
 def _font_internal_name(font_file: Path) -> str | None:
     """fontTools 读字体内部名,供 libass 匹配。"""
-    from fontTools.ttLib import TTFont  # noqa: PLC0415
+    from fontTools.ttLib import TTFont
 
     try:
         tt = TTFont(str(font_file), fontNumber=0, lazy=True)
@@ -720,27 +770,31 @@ def _font_internal_name(font_file: Path) -> str | None:
 
 # ------------------------------------------------------------------ 编排
 
-def process_video(input_video: Path, out_dir: Path,
-                  text: str = "",
-                  bgm: Path | None = None,
-                  font: Path | None = None,
-                  bg_image: Path | None = None,
-                  watermark_text: str | None = None,
-                  cover_text: str = "",
-                  cover_highlights: Sequence[str] = (),
-                  silence_cut: bool = True,
-                  subtitle: bool = True,
-                  bgm_enabled: bool = True,
-                  cover: bool = True,
-                  bgm_volume: float = 0.15,
-                  subtitle_fontsize: int = 44,
-                  silence_noise_db: float = -30.0,
-                  silence_min_dur: float = MAX_SILENCE_LENGTH,
-                  bg_canvas_w: int = 1080,
-                  bg_canvas_h: int = 1920,
-                  bg_fg_ratio: float = 0.9,
-                  cover_ai_text: str = "此封面为AI生成",
-                  ffmpeg: str | None = None) -> dict[str, Path]:
+
+def process_video(
+    input_video: Path,
+    out_dir: Path,
+    text: str = "",
+    bgm: Path | None = None,
+    font: Path | None = None,
+    bg_image: Path | None = None,
+    watermark_text: str | None = None,
+    cover_text: str = "",
+    cover_highlights: Sequence[str] = (),
+    silence_cut: bool = True,
+    subtitle: bool = True,
+    bgm_enabled: bool = True,
+    cover: bool = True,
+    bgm_volume: float = 0.15,
+    subtitle_fontsize: int = 44,
+    silence_noise_db: float = -30.0,
+    silence_min_dur: float = MAX_SILENCE_LENGTH,
+    bg_canvas_w: int = 1080,
+    bg_canvas_h: int = 1920,
+    bg_fg_ratio: float = 0.9,
+    cover_ai_text: str = "此封面为AI生成",
+    ffmpeg: str | None = None,
+) -> dict[str, Path]:
     """六步编排:静音切除 → 背景图合成 → 字幕烧录(均分) → BGM 混音 → 水印 → 封面。
 
     所有素材路径显式传入,没给就跳过对应步骤;产物 final.mp4 / cover.png /
@@ -776,9 +830,7 @@ def process_video(input_video: Path, out_dir: Path,
     if silence_cut:
         try:
             nxt = out_dir / "step1_silence.mp4"
-            cut_silence(cur, nxt, out_dir,
-                        noise_db=silence_noise_db, min_dur=silence_min_dur,
-                        ffmpeg=exe)
+            cut_silence(cur, nxt, out_dir, noise_db=silence_noise_db, min_dur=silence_min_dur, ffmpeg=exe)
             cur = nxt
         except Exception as e:
             logger.warning(f"静音切除失败,保留原视频: {e}")
@@ -791,15 +843,37 @@ def process_video(input_video: Path, out_dir: Path,
         else:
             fw = int(bg_canvas_w * bg_fg_ratio)
             nxt = out_dir / "step2_bg.mp4"
-            run_ffmpeg([
-                "-i", cur.name, "-loop", "1", "-i", str(bg),
-                "-filter_complex",
-                f"[1:v]scale={bg_canvas_w}:{bg_canvas_h}[bg];[0:v]scale={fw}:-2[fg];"
-                f"[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1[v]",
-                "-map", "[v]", "-map", "0:a",
-                "-c:v", "libx264", "-preset", "superfast", "-crf", "18",
-                "-pix_fmt", "yuv420p", "-c:a", "aac", nxt.name,
-            ], desc="背景图合成", cwd=out_dir, ffmpeg=exe)
+            run_ffmpeg(
+                [
+                    "-i",
+                    cur.name,
+                    "-loop",
+                    "1",
+                    "-i",
+                    str(bg),
+                    "-filter_complex",
+                    f"[1:v]scale={bg_canvas_w}:{bg_canvas_h}[bg];[0:v]scale={fw}:-2[fg];"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2:shortest=1[v]",
+                    "-map",
+                    "[v]",
+                    "-map",
+                    "0:a",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "superfast",
+                    "-crf",
+                    "18",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:a",
+                    "aac",
+                    nxt.name,
+                ],
+                desc="背景图合成",
+                cwd=out_dir,
+                ffmpeg=exe,
+            )
             cur = nxt
 
     # 封面底图来源:背景图合成之后、字幕烧录之前的视频(无字幕帧)
@@ -819,14 +893,15 @@ def process_video(input_video: Path, out_dir: Path,
             else:
                 duration, vw, vh = probe_video(cur, ffmpeg=exe)
                 segments = even_subtitle_segments(lines, duration)
-                write_ass(segments, out_dir / "sub.ass",
-                          font_name, subtitle_fontsize, vw, vh)
+                write_ass(segments, out_dir / "sub.ass", font_name, subtitle_fontsize, vw, vh)
                 fontsdir = os.path.relpath(font_file.parent, out_dir).replace(os.sep, "/")
                 nxt = out_dir / "step3_subtitled.mp4"
-                run_ffmpeg(["-i", cur.name,
-                            "-vf", f"subtitles=sub.ass:fontsdir='{fontsdir}'",
-                            "-c:a", "copy", nxt.name],
-                           desc="字幕烧录", cwd=out_dir, ffmpeg=exe)
+                run_ffmpeg(
+                    ["-i", cur.name, "-vf", f"subtitles=sub.ass:fontsdir='{fontsdir}'", "-c:a", "copy", nxt.name],
+                    desc="字幕烧录",
+                    cwd=out_dir,
+                    ffmpeg=exe,
+                )
                 cur = nxt
 
     # 4. BGM 混音
@@ -835,13 +910,30 @@ def process_video(input_video: Path, out_dir: Path,
             logger.warning("未提供 BGM(或路径不存在),输出仅含原音")
         else:
             nxt = out_dir / "step4_bgm.mp4"
-            run_ffmpeg([
-                "-i", cur.name, "-stream_loop", "-1", "-i", str(bgm),
-                "-filter_complex",
-                f"[1:a]volume={bgm_volume}[bgm];[0:a][bgm]amix=inputs=2:duration=first[a]",
-                "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac",
-                nxt.name,
-            ], desc="BGM 混音", cwd=out_dir, ffmpeg=exe)
+            run_ffmpeg(
+                [
+                    "-i",
+                    cur.name,
+                    "-stream_loop",
+                    "-1",
+                    "-i",
+                    str(bgm),
+                    "-filter_complex",
+                    f"[1:a]volume={bgm_volume}[bgm];[0:a][bgm]amix=inputs=2:duration=first[a]",
+                    "-map",
+                    "0:v",
+                    "-map",
+                    "[a]",
+                    "-c:v",
+                    "copy",
+                    "-c:a",
+                    "aac",
+                    nxt.name,
+                ],
+                desc="BGM 混音",
+                cwd=out_dir,
+                ffmpeg=exe,
+            )
             cur = nxt
 
     # 5. 视频水印
@@ -851,9 +943,7 @@ def process_video(input_video: Path, out_dir: Path,
         else:
             try:
                 nxt = out_dir / "step5_watermark.mp4"
-                add_text_watermark(cur, nxt, out_dir, str(watermark_text),
-                                   font_dir=font_file.parent,
-                                   ffmpeg=exe)
+                add_text_watermark(cur, nxt, out_dir, str(watermark_text), font_dir=font_file.parent, ffmpeg=exe)
                 cur = nxt
             except Exception as e:
                 logger.warning(f"视频水印失败,保留无水印版本: {e}")
@@ -868,14 +958,12 @@ def process_video(input_video: Path, out_dir: Path,
             if cover_text.strip() and font_file is not None:
                 first, second = _split_cover_text(cover_text)
                 out_text = out_dir / "cover_text.png"
-                add_multicolor_text(raw, out_text, first, second,
-                                    list(cover_highlights), font_file)
+                add_multicolor_text(raw, out_text, first, second, list(cover_highlights), font_file)
                 img = out_text
             elif cover_text.strip():
                 logger.warning("未提供字体,封面不画文字")
             cover_path = out_dir / "cover.png"
-            add_ai_watermark(img, cover_path, text=cover_ai_text,
-                             font_dir=font_file.parent if font_file else None)
+            add_ai_watermark(img, cover_path, text=cover_ai_text, font_dir=font_file.parent if font_file else None)
             raw.unlink(missing_ok=True)
             (out_dir / "cover_text.png").unlink(missing_ok=True)
             outputs["cover"] = cover_path

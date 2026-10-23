@@ -50,11 +50,11 @@ def _load_model(settings: Settings):
             )
 
     key = (str(model_path),)
-    if _MODEL is not None and _MODEL_SETTINGS_KEY == key:
+    if _MODEL is not None and key == _MODEL_SETTINGS_KEY:
         return _MODEL
     _inject_paths(settings)
     logger.info(f"加载 CosyVoice3 模型: {model_path}")
-    from cosyvoice.cli.cosyvoice import AutoModel  # noqa: PLC0415
+    from cosyvoice.cli.cosyvoice import AutoModel
 
     _MODEL = AutoModel(model_dir=str(model_path))
     _MODEL_SETTINGS_KEY = key
@@ -79,8 +79,8 @@ class CosyVoice3TTS:
         speed: float = 1.0,
         **kwargs: Any,
     ) -> Path:
-        import soundfile as sf  # noqa: PLC0415
-        import torch  # noqa: PLC0415
+        import soundfile as sf
+        import torch
 
         model = _load_model(self.settings)
         ref_audio = ref_audio or self.settings.default_ref_audio
@@ -90,7 +90,11 @@ class CosyVoice3TTS:
 
         chunks = []
         for out in model.inference_zero_shot(
-            text, prompt_text, str(ref_audio), stream=False, speed=speed,
+            text,
+            prompt_text,
+            str(ref_audio),
+            stream=False,
+            speed=speed,
         ):
             chunks.append(out["tts_speech"])
         if not chunks:
@@ -108,7 +112,7 @@ class CosyVoice3TTS:
         _MODEL = None
         _MODEL_SETTINGS_KEY = None
         try:
-            import torch  # noqa: PLC0415
+            import torch
 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()

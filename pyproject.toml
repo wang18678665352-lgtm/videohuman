@@ -77,3 +77,51 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vh_core", "vh_cli", "vh_server"]
+
+# ---------------------------------------------------------------- ruff
+# 本仓库自有代码只包含 vh_core / vh_cli / vh_server / download_weights.py;
+# third_party/ 与 web/ 是 vendor 与前端产物,不参与检查。
+[tool.ruff]
+line-length = 120          # 代码里存在较多中文注释与 ffmpeg 参数行
+target-version = "py311"   # 与 requires-python 对齐(ruff 默认按 py39 判断)
+extend-exclude = [
+    "third_party",
+    "web",
+    "models",
+    "workspace",
+    "assets",
+    "configs",
+    "examples",
+    "docker",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",        # pycodestyle
+    "F",             # pyflakes(未定义名/未使用 import —— 真 bug)
+    "I",             # isort
+    "UP",            # pyupgrade
+    "B",             # flake8-bugbear
+    "C4",            # flake8-comprehensions
+    "SIM",           # flake8-simplify
+    "PIE",           # flake8-pie
+    "RUF",           # ruff 自有规则(含 RUF100 noqa 卫生)
+]
+ignore = [
+    "E501",          # 行长由 formatter 兜底;中文注释不计入
+    "B008",          # typer 的参数默认值必须是 typer.Option(...) 调用
+    "B905",          # zip(strict=) 对"词/时间戳"这类必须容忍长度不一致的配对不适用
+    "UP042",         # StageStatus(str, Enum) 是与 pydantic/JSON 兼容的既有约定
+    "RUF001", "RUF002", "RUF003",  # 中文全角标点是刻意的排版风格
+]
+
+[tool.ruff.lint.per-file-ignores]
+# typer 用 OptionInfo 作为默认值生成 CLI 帮助,docstring 动态拼接同理
+"vh_cli/main.py" = ["B008", "B021"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["vh_core", "vh_cli", "vh_server"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

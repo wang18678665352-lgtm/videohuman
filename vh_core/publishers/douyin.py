@@ -11,11 +11,12 @@ cookie 为 playwright storage_state JSON;async 实现 + asyncio.run 包装成同
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -26,20 +27,24 @@ UPLOAD_URL = "https://creator.douyin.com/creator-micro/content/upload"
 MANAGE_URL = "https://creator.douyin.com/creator-micro/content/manage"
 
 # ===== 平台改版需维护点:以下选择器随抖音创作者平台前端改版可能失效,实发时需校准 =====
-SEL_LOADING = "div.semi-spin-children > div.semi-spin-item"      # 页面加载指示器
-SEL_FILE_INPUT = "input[type='file']"                            # 视频文件 input
-SEL_PROGRESS_CONTAINER = "div.progress-div"                      # 上传进度条容器
-SEL_PROGRESS_TEXT = "div.progress-div"                           # 进度文本(取 inner_text 尾部的 %)
+SEL_LOADING = "div.semi-spin-children > div.semi-spin-item"  # 页面加载指示器
+SEL_FILE_INPUT = "input[type='file']"  # 视频文件 input
+SEL_PROGRESS_CONTAINER = "div.progress-div"  # 上传进度条容器
+SEL_PROGRESS_TEXT = "div.progress-div"  # 进度文本(取 inner_text 尾部的 %)
 SEL_REUPLOAD_INPUT = "div.progress-div [class^='upload-btn-input']"  # "重新上传"入口(=上传完成)
-SEL_ERROR_MESSAGE = "[class*='error-message']"                   # 上传出错提示
-SEL_TITLE_INPUT = "input[placeholder*='填写作品标题']"           # 标题输入框
-SEL_TAG_CONTAINER = ".zone-container"                            # 标题/话题输入区(输 #话题)
-SEL_SCHEDULE_RADIO = "[class^='radio']:has-text('定时发布')"     # 定时发布单选
-SEL_SCHEDULE_INPUT = ".semi-input[placeholder='日期和时间']"     # 定时时间输入框
+SEL_ERROR_MESSAGE = "[class*='error-message']"  # 上传出错提示
+SEL_TITLE_INPUT = "input[placeholder*='填写作品标题']"  # 标题输入框
+SEL_TAG_CONTAINER = ".zone-container"  # 标题/话题输入区(输 #话题)
+SEL_SCHEDULE_RADIO = "[class^='radio']:has-text('定时发布')"  # 定时发布单选
+SEL_SCHEDULE_INPUT = ".semi-input[placeholder='日期和时间']"  # 定时时间输入框
 
-UPLOAD_TIMEOUT = 600   # 视频上传等待上限(秒)
-PUBLISH_TIMEOUT = 30   # 点击发布后等待跳转上限(秒)
+UPLOAD_TIMEOUT = 600  # 视频上传等待上限(秒)
+PUBLISH_TIMEOUT = 30  # 点击发布后等待跳转上限(秒)
 VERIFY_WAIT_TIMEOUT = 300  # 出现验证弹窗时等用户完成的上限(秒)
+SCHEDULE_MIN_AHEAD = 2 * 3600  # 抖音定时发布要求距当前 ≥2 小时(平台限制)
+
+# 北京时间(UTC+8,无夏令时):定时发布日期框按该时区的墙上时间填写
+CST = timezone(timedelta(hours=8))
 
 # 平台改版需维护点:发布时的安全验证弹窗(短信验证码/滑块等)
 VERIFY_SELECTORS = [
@@ -138,14 +143,18 @@ async def _set_thumbnail(page, thumbnail_path: Path) -> None:
         logger.info("封面设置完成")
     except Exception as e:
         logger.warning(f"设置封面失败,继续后续流程: {e}")
-        try:
+        with contextlib.suppress(Exception):
             await page.keyboard.press("Escape")
-        except Exception:
-            pass
 
 
 async def _set_schedule_time(page, publish_date: datetime) -> None:
-    """设置定时发布(原 set_schedule_time_douyin 照搬)。"""
+    """设置定时发布(原 set_schedule_time_douyin 照搬)。
+
+    日期框只认**北京时间**墙上时间:publish_date 带时区时先换到 UTC+8 再格式化,
+    否则东八区用户填的 20:00 会被填成 12:00。
+    """
+    if publish_date.tzinfo is not None:
+        publish_date = publish_date.astimezone(CST)
     await page.locator(SEL_SCHEDULE_RADIO).click()
     await asyncio.sleep(1)
     await page.locator(SEL_SCHEDULE_INPUT).click()
@@ -180,8 +189,9 @@ async def _wait_publish_result(page, context, cookies_path: Path) -> bool:
         if verify is not None:
             if not announced:
                 announced = True
-                logger.warning("检测到发布安全验证(短信/滑块),请在浏览器中完成,"
-                               f"浏览器会保持打开(最长 {VERIFY_WAIT_TIMEOUT} 秒)")
+                logger.warning(
+                    f"检测到发布安全验证(短信/滑块),请在浏览器中完成,浏览器会保持打开(最长 {VERIFY_WAIT_TIMEOUT} 秒)"
+                )
             try:
                 await verify.wait_for(state="hidden", timeout=VERIFY_WAIT_TIMEOUT * 1000)
             except Exception:
@@ -218,19 +228,15 @@ class DouyinPublisher:
         """预检 playwright storage_state:文件存在、JSON dict、cookies 非空。"""
         if not cookies_path.exists():
             raise FileNotFoundError(
-                f"未找到抖音登录态文件: {cookies_path}。"
-                "请先运行 vh login douyin 并在弹出的浏览器中登录"
+                f"未找到抖音登录态文件: {cookies_path}。请先运行 vh login douyin 并在弹出的浏览器中登录"
             )
         try:
             data = json.loads(cookies_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            raise ValueError(
-                f"抖音 cookie 文件不是有效 JSON: {cookies_path} ({e})。请先运行 vh login douyin"
-            ) from e
+            raise ValueError(f"抖音 cookie 文件不是有效 JSON: {cookies_path} ({e})。请先运行 vh login douyin") from e
         if not isinstance(data, dict) or not data.get("cookies"):
             raise ValueError(
-                f"抖音 cookie 文件缺少 storage_state 结构(cookies 为空): {cookies_path}。"
-                "请先运行 vh login douyin"
+                f"抖音 cookie 文件缺少 storage_state 结构(cookies 为空): {cookies_path}。请先运行 vh login douyin"
             )
 
     async def _upload_async(
@@ -242,7 +248,13 @@ class DouyinPublisher:
         cookies_path: Path,
         publish_date: datetime | None,
     ) -> bool:
-        from playwright.async_api import async_playwright  # noqa: PLC0415
+        if publish_date is not None and (publish_date - datetime.now(CST)).total_seconds() < SCHEDULE_MIN_AHEAD:
+            # 平台硬限制:提前量不足会被拒,直接给可排障的报错而不是在页面上空转
+            raise ValueError(
+                f"抖音定时发布需距当前至少 {SCHEDULE_MIN_AHEAD // 3600} 小时,"
+                f"当前设定: {publish_date.astimezone(CST):%Y-%m-%d %H:%M}(北京时间)"
+            )
+        from playwright.async_api import async_playwright
 
         async with async_playwright() as pw:
             executable = _find_chrome_executable()
@@ -256,8 +268,8 @@ class DouyinPublisher:
                     permissions=["geolocation"],
                     geolocation={"latitude": 39.9042, "longitude": 116.4074},  # 北京
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                               "AppleWebKit/537.36 (KHTML, like Gecko) "
-                               "Chrome/120.0.0.0 Safari/537.36",
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36",
                     viewport={"width": 1920, "height": 1080},
                     locale="zh-CN",
                     timezone_id="Asia/Shanghai",
@@ -288,8 +300,11 @@ class DouyinPublisher:
                     progress_box = page.locator(SEL_PROGRESS_CONTAINER)
                     if await progress_box.count():
                         try:
-                            text = (await page.locator(SEL_PROGRESS_TEXT).first
-                                    .inner_text(timeout=3000)).strip().rstrip("%")
+                            text = (
+                                (await page.locator(SEL_PROGRESS_TEXT).first.inner_text(timeout=3000))
+                                .strip()
+                                .rstrip("%")
+                            )
                             if text.isdigit():
                                 logger.info(f"上传进度: {text}%")
                         except Exception:
@@ -364,15 +379,13 @@ class DouyinPublisher:
         title = truncate_title(self.platform, title)
         tags = normalize_tags(self.platform, tags)
         try:
-            ok = asyncio.run(self._upload_async(video, title, tags, cover,
-                                                cookies_path, publish_date))
+            ok = asyncio.run(self._upload_async(video, title, tags, cover, cookies_path, publish_date))
         except Exception as e:
             logger.exception("抖音上传过程出错")
             return {"platform": self.platform, "ok": False, "detail": f"上传异常: {e}"}
         if ok:
             return {"platform": self.platform, "ok": True, "detail": "发布成功"}
-        return {"platform": self.platform, "ok": False,
-                "detail": "未检测到发布成功标识(详见日志,可能需校准选择器)"}
+        return {"platform": self.platform, "ok": False, "detail": "未检测到发布成功标识(详见日志,可能需校准选择器)"}
 
 
 LOGIN_URL = "https://creator.douyin.com/creator-micro/content/upload"
@@ -384,7 +397,7 @@ async def _login_douyin_async(cookies_path: Path) -> None:
 
     判登录成功:context cookie 中出现 douyin.com 域的 sessionid/sessionid_ss。
     """
-    from playwright.async_api import async_playwright  # noqa: PLC0415
+    from playwright.async_api import async_playwright
 
     async with async_playwright() as pw:
         executable = _find_chrome_executable()
@@ -402,18 +415,16 @@ async def _login_douyin_async(cookies_path: Path) -> None:
             page = await context.new_page()
             await page.goto(LOGIN_URL, timeout=120_000, wait_until="domcontentloaded")
 
-            logger.info("浏览器已打开抖音创作者平台,请扫码/验证登录,"
-                        f"登录成功后将自动保存登录态(最长等待 {LOGIN_WAIT_TIMEOUT} 秒)...")
+            logger.info(
+                "浏览器已打开抖音创作者平台,请扫码/验证登录,"
+                f"登录成功后将自动保存登录态(最长等待 {LOGIN_WAIT_TIMEOUT} 秒)..."
+            )
             deadline = time.time() + LOGIN_WAIT_TIMEOUT
             while time.time() < deadline:
                 if browser.contexts and not context.pages:
                     raise RuntimeError("浏览器窗口被关闭,登录未完成")
                 cookies = await context.cookies()
-                if any(
-                    c["name"] in ("sessionid", "sessionid_ss")
-                    and "douyin.com" in c["domain"]
-                    for c in cookies
-                ):
+                if any(c["name"] in ("sessionid", "sessionid_ss") and "douyin.com" in c["domain"] for c in cookies):
                     break
                 await asyncio.sleep(2)
             else:
@@ -424,8 +435,7 @@ async def _login_douyin_async(cookies_path: Path) -> None:
             cookies_path.parent.mkdir(parents=True, exist_ok=True)
             await context.storage_state(path=str(cookies_path))
             saved = json.loads(cookies_path.read_text(encoding="utf-8"))
-            logger.info(f"抖音登录态已保存({len(saved.get('cookies', []))} 条 cookie): "
-                        f"{cookies_path}")
+            logger.info(f"抖音登录态已保存({len(saved.get('cookies', []))} 条 cookie): {cookies_path}")
         finally:
             await browser.close()
 

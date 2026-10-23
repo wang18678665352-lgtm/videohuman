@@ -54,10 +54,10 @@ class LstmSyncAvatar:
     def name(self) -> str:
         return "lstmsync-onnx"
 
-    def _engine(self, model: str, batch_size: int, sync_offset: int,
-                scale_h: float, scale_w: float):
+    def _engine(self, model: str, batch_size: int, sync_offset: int, scale_h: float, scale_w: float):
         key = (model, batch_size, sync_offset, scale_h, scale_w)
-        if _STATE.get("key") == key:
+        # 注意:"key" 里存的是参数元组本身,不能写成 _STATE.get("key")(dict 键是字符串)
+        if _STATE.get("key") is not None and _STATE["key"] == key:
             return _STATE["engine"]
         root = Path(self.settings.lstmsync_dir)
         if not root.is_absolute():
@@ -66,7 +66,7 @@ class LstmSyncAvatar:
             raise FileNotFoundError(f"LstmSync 引擎目录无效(缺 lstmsync_func.py): {root}")
         if str(root) not in sys.path:
             sys.path.insert(0, str(root))
-        import lstmsync_func  # noqa: PLC0415
+        import lstmsync_func
 
         _patch_subprocess(lstmsync_func, get_ffmpeg(self.settings))
         logger.info(f"加载 LstmSync 引擎: {root / 'checkpoints' / model}")
@@ -89,7 +89,7 @@ class LstmSyncAvatar:
         肉眼抽帧根本看不见——所以在送引擎前先洗一遍。检测器直接复用引擎的
         FaceAnalysis 实例,判据与引擎完全一致。
         """
-        import cv2  # noqa: PLC0415
+        import cv2
 
         detector = engine.detect_face.face_detector
         cap = cv2.VideoCapture(str(video))
@@ -112,14 +112,25 @@ class LstmSyncAvatar:
         if dropped:
             logger.info(f"素材清洗: {total} 帧丢 {dropped} 帧(无脸/过渡),保留 {kept} 帧")
         if kept < int(fps):
-            raise RuntimeError(
-                f"素材可用帧过少({total} 帧中仅 {kept} 帧有正脸),请换正脸口播素材"
-            )
+            raise RuntimeError(f"素材可用帧过少({total} 帧中仅 {kept} 帧有正脸),请换正脸口播素材")
         clean = work_dir / "clean.mp4"
-        run_ffmpeg(self.settings, [
-            "-framerate", str(int(round(fps))), "-i", str(frames_dir / "%08d.png"),
-            "-c:v", "libx264", "-crf", "16", "-pix_fmt", "yuv420p", str(clean),
-        ], desc="清洗素材合成")
+        run_ffmpeg(
+            self.settings,
+            [
+                "-framerate",
+                str(round(fps)),
+                "-i",
+                str(frames_dir / "%08d.png"),
+                "-c:v",
+                "libx264",
+                "-crf",
+                "16",
+                "-pix_fmt",
+                "yuv420p",
+                str(clean),
+            ],
+            desc="清洗素材合成",
+        )
         return clean
 
     def generate(
@@ -168,9 +179,7 @@ class LstmSyncAvatar:
         finally:
             os.chdir(old_cwd)
         if not out_path.exists():
-            raise RuntimeError(
-                "LstmSync 未产出视频(常见原因:素材帧里检不出正脸,见 work_dir/temp/noface.jpg)"
-            )
+            raise RuntimeError("LstmSync 未产出视频(常见原因:素材帧里检不出正脸,见 work_dir/temp/noface.jpg)")
         logger.info(f"数字人视频生成完成: {out_path}")
         return out_path
 

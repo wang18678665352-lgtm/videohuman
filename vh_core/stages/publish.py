@@ -50,18 +50,23 @@ def _parse_tags(raw: Any) -> list[str]:
 
 
 def _parse_publish_date(raw: Any) -> datetime | None:
+    """解析定时发布时间,统一返回**带时区**的 datetime(无时区按本机时区解释)。
+
+    裸时间(如 "2026-08-08T20:00:00")若当 UTC 处理,抖音日期输入框会被填进早 8
+    小时的时刻、B站 dtime 也会偏,所以这里一律本地化。
+    """
     if not raw:
         return None
     if isinstance(raw, datetime):
-        return raw
-    if isinstance(raw, str):
+        dt = raw
+    elif isinstance(raw, str):
         try:
-            return datetime.fromisoformat(raw)
+            dt = datetime.fromisoformat(raw.strip())
         except ValueError as e:
-            raise ValueError(
-                f"params.publish_date 不是合法 ISO 时间: {raw!r}(示例 2026-08-08T20:00:00)"
-            ) from e
-    raise ValueError(f"params.publish_date 类型不支持: {type(raw).__name__}")
+            raise ValueError(f"params.publish_date 不是合法 ISO 时间: {raw!r}(示例 2026-08-08T20:00:00)") from e
+    else:
+        raise ValueError(f"params.publish_date 类型不支持: {type(raw).__name__}")
+    return dt if dt.tzinfo else dt.astimezone()
 
 
 class PublishStage(Stage):
@@ -73,9 +78,7 @@ class PublishStage(Stage):
     def run(self, ctx: StageContext) -> dict[str, Path]:
         video = ctx.job_dir / "postprocess" / "final.mp4"
         if not video.exists():
-            raise FileNotFoundError(
-                f"publish 需要 postprocess 产物 final.mp4(未找到: {video}),请先跑 postprocess"
-            )
+            raise FileNotFoundError(f"publish 需要 postprocess 产物 final.mp4(未找到: {video}),请先跑 postprocess")
         cover = ctx.job_dir / "postprocess" / "cover.png"
         cover = cover if cover.exists() else None
 
@@ -92,15 +95,13 @@ class PublishStage(Stage):
             cls = PUBLISHERS.get(platform)
             if cls is None:
                 logger.error(f"未知发布平台: {platform}(可选: {list(PUBLISHERS)})")
-                results.append({"platform": platform, "ok": False,
-                                "detail": f"未知平台,可选: {list(PUBLISHERS)}"})
+                results.append({"platform": platform, "ok": False, "detail": f"未知平台,可选: {list(PUBLISHERS)}"})
                 continue
             publisher: PublisherBase = cls()
             cookies_path = ctx.settings.publish_cookies / f"{platform}.json"
             logger.info(f"开始发布到 {platform}: 标题={title!r} 标签={tags}")
             try:
-                result = publisher.upload(video, title, tags, cover,
-                                          cookies_path, publish_date)
+                result = publisher.upload(video, title, tags, cover, cookies_path, publish_date)
             except Exception as e:
                 logger.exception(f"[{platform}] 发布失败,继续其他平台")
                 result = {"platform": platform, "ok": False, "detail": str(e)}
@@ -108,16 +109,20 @@ class PublishStage(Stage):
             logger.info(f"[{platform}] 发布结果: ok={result['ok']} {result['detail']}")
 
         out = ctx.stage_dir / "result.json"
-        out.write_text(json.dumps({
-            "video": ctx.rel(video),
-            "title": title,
-            "tags": tags,
-            "results": results,
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        out.write_text(
+            json.dumps(
+                {
+                    "video": ctx.rel(video),
+                    "title": title,
+                    "tags": tags,
+                    "results": results,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
         if not any(r["ok"] for r in results):
-            raise RuntimeError(
-                "所有平台发布均失败: "
-                + "; ".join(f"[{r['platform']}] {r['detail']}" for r in results)
-            )
+            raise RuntimeError("所有平台发布均失败: " + "; ".join(f"[{r['platform']}] {r['detail']}" for r in results))
         return {"result": out}

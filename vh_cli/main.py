@@ -49,12 +49,14 @@ def capability(
         error = None
     except RuntimeError as e:
         error = str(e)
-    _emit({
-        "has_cuda": info.has_cuda,
-        "error": error,
-        "detect_source": info.source,
-        "gpus": [{"name": g.name, "vram_gb": g.vram_gb} for g in info.gpus],
-    })
+    _emit(
+        {
+            "has_cuda": info.has_cuda,
+            "error": error,
+            "detect_source": info.source,
+            "gpus": [{"name": g.name, "vram_gb": g.vram_gb} for g in info.gpus],
+        }
+    )
 
 
 @app.command()
@@ -84,10 +86,17 @@ def run(
     spec_obj = load_spec(spec) if spec else None
     jid = job_id or spec_obj.job_id
     params = dict(spec_obj.params) if spec_obj else {}
-    for k, v in {"audio": audio, "text": text, "share_url": share_url, "douyin_cookie": douyin_cookie,
-                 "ref_audio": ref_audio, "ref_text": ref_text,
-                 "avatar_video": avatar_video, "publish_title": publish_title,
-                 "tts_engine": tts_engine}.items():
+    for k, v in {
+        "audio": audio,
+        "text": text,
+        "share_url": share_url,
+        "douyin_cookie": douyin_cookie,
+        "ref_audio": ref_audio,
+        "ref_text": ref_text,
+        "avatar_video": avatar_video,
+        "publish_title": publish_title,
+        "tts_engine": tts_engine,
+    }.items():
         if v is not None:
             params[k] = v
     if publish:
@@ -174,9 +183,16 @@ def _single_stage(stage_name: str):
         f"""单步运行 {stage_name} stage(输入缺省时取上游 manifest 产物)。"""
         _setup_logging(verbose)
         params: dict[str, Any] = {}
-        for k, v in {"audio": audio, "text": text, "share_url": share_url, "douyin_cookie": douyin_cookie,
-                     "ref_audio": ref_audio, "ref_text": ref_text,
-                     "avatar_video": avatar_video, "publish_title": publish_title}.items():
+        for k, v in {
+            "audio": audio,
+            "text": text,
+            "share_url": share_url,
+            "douyin_cookie": douyin_cookie,
+            "ref_audio": ref_audio,
+            "ref_text": ref_text,
+            "avatar_video": avatar_video,
+            "publish_title": publish_title,
+        }.items():
             if v is not None:
                 params[k] = v
         if publish:
@@ -184,8 +200,7 @@ def _single_stage(stage_name: str):
         if publish_tags:
             params["publish_tags"] = [t.strip() for t in publish_tags.split(",") if t.strip()]
         try:
-            manifest = run_job(JobSpec(job_id=job_id, params=params),
-                               only=[stage_name], resume=not no_resume)
+            manifest = run_job(JobSpec(job_id=job_id, params=params), only=[stage_name], resume=not no_resume)
         except PipelineStageError as e:
             _emit({"ok": False, "failed_stage": e.stage_name, "error": str(e)})
             raise typer.Exit(code=1) from e

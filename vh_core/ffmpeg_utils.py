@@ -9,7 +9,6 @@ from __future__ import annotations
 import shutil
 
 from . import media as _media
-
 from .config import Settings
 
 

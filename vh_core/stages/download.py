@@ -19,8 +19,10 @@ from loguru import logger
 
 from ..pipeline import Stage, StageContext
 
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
 DETAIL_API = "aweme/v1/web/aweme/detail"
 DETAIL_WAIT_TIMEOUT = 45  # 浏览器内等详情 API 响应的上限(秒)
 
@@ -65,9 +67,9 @@ def _storage_state_from_cookie(cookie: str) -> dict:
 
 async def _fetch_play_info_async(modal_id: str, storage_state) -> dict:
     """开浏览器(带登录态)打开视频页,拦截 detail API,返回 {play_url, title}。"""
-    from playwright.async_api import async_playwright  # noqa: PLC0415
+    from playwright.async_api import async_playwright
 
-    from ..publishers.douyin import CHROME_ARGS, STEALTH_JS, _find_chrome_executable  # noqa: PLC0415
+    from ..publishers.douyin import CHROME_ARGS, STEALTH_JS, _find_chrome_executable
 
     details: list[dict] = []
     async with async_playwright() as pw:
@@ -96,8 +98,7 @@ async def _fetch_play_info_async(modal_id: str, storage_state) -> dict:
                         details.append(body)
 
             page.on("response", on_response)
-            await page.goto(f"https://www.douyin.com/video/{modal_id}",
-                            timeout=60_000, wait_until="domcontentloaded")
+            await page.goto(f"https://www.douyin.com/video/{modal_id}", timeout=60_000, wait_until="domcontentloaded")
             deadline = time.time() + DETAIL_WAIT_TIMEOUT
             while not details and time.time() < deadline:
                 await asyncio.sleep(1)
@@ -106,8 +107,7 @@ async def _fetch_play_info_async(modal_id: str, storage_state) -> dict:
 
     if not details:
         raise DouyinDownloadError(
-            "浏览器未抓到视频详情——登录态可能失效(重跑 vh login douyin)、"
-            "链接无效或被风控,请稍后重试"
+            "浏览器未抓到视频详情——登录态可能失效(重跑 vh login douyin)、链接无效或被风控,请稍后重试"
         )
     detail = details[0]["aweme_detail"]
     video = detail.get("video") or {}
@@ -121,16 +121,13 @@ async def _fetch_play_info_async(modal_id: str, storage_state) -> dict:
             play_url = urls[0]
             break
     if not play_url:
-        raise DouyinDownloadError(
-            "详情接口结构与预期不符(抖音可能改版):video 下无可用 play_addr"
-        )
+        raise DouyinDownloadError("详情接口结构与预期不符(抖音可能改版):video 下无可用 play_addr")
     if not play_url.startswith("https://"):
         play_url = "https://" + play_url
     return {"play_url": play_url, "title": detail.get("desc", "")}
 
 
-def get_play_info(modal_id: str, cookie: str = "",
-                  storage_state_path: Path | None = None) -> dict:
+def get_play_info(modal_id: str, cookie: str = "", storage_state_path: Path | None = None) -> dict:
     """抓播放地址,返回 {play_url, title, modal_id}。登录态优先用 storage_state 文件。"""
     if storage_state_path and storage_state_path.exists():
         state: str | dict = str(storage_state_path)
@@ -138,8 +135,7 @@ def get_play_info(modal_id: str, cookie: str = "",
         state = _storage_state_from_cookie(cookie)
     else:
         raise DouyinDownloadError(
-            "抓播放地址需要抖音登录态:先运行 vh login douyin,"
-            "或用 params.douyin_cookie / VH_DOUYIN_COOKIE 显式给 cookie"
+            "抓播放地址需要抖音登录态:先运行 vh login douyin,或用 params.douyin_cookie / VH_DOUYIN_COOKIE 显式给 cookie"
         )
     try:
         info = asyncio.run(_fetch_play_info_async(modal_id, state))
@@ -175,8 +171,7 @@ class DownloadStage(Stage):
     def run(self, ctx: StageContext) -> dict[str, Path]:
         share_url = ctx.params["share_url"]
         cookie = ctx.params.get("douyin_cookie") or ctx.settings.douyin_cookie
-        login_state = (ctx.settings.abs_path(ctx.settings.publish_cookies_dir)
-                       / "douyin.json")
+        login_state = ctx.settings.abs_path(ctx.settings.publish_cookies_dir) / "douyin.json"
         if not cookie and login_state.exists():
             logger.info(f"未显式给 cookie,使用 vh login 保存的登录态: {login_state}")
 
@@ -187,9 +182,13 @@ class DownloadStage(Stage):
 
         video = download_file(info["play_url"], ctx.stage_dir / "source.mp4")
         meta = ctx.stage_dir / "meta.json"
-        meta.write_text(json.dumps(
-            {"title": info["title"], "modal_id": modal_id, "share_url": share_url},
-            ensure_ascii=False, indent=2,
-        ), encoding="utf-8")
+        meta.write_text(
+            json.dumps(
+                {"title": info["title"], "modal_id": modal_id, "share_url": share_url},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         logger.info(f"下载完成: {video} ({video.stat().st_size / 1e6:.1f} MB)")
         return {"video": video, "meta": meta}

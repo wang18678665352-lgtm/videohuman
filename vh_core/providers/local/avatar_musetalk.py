@@ -13,7 +13,6 @@ from __future__ import annotations
 import copy
 import glob
 import os
-import pickle
 import shutil
 import sys
 from contextlib import contextmanager
@@ -49,12 +48,11 @@ def _load_models(settings: Settings, use_float16: bool) -> dict[str, Any]:
     if _STATE.get("loaded") and _STATE.get("fp16") == use_float16:
         return _STATE
     with _musetalk_env(settings):
-        import torch  # noqa: PLC0415
-        from transformers import WhisperModel  # noqa: PLC0415
-
-        from musetalk.utils.audio_processor import AudioProcessor  # noqa: PLC0415
-        from musetalk.utils.face_parsing import FaceParsing  # noqa: PLC0415
-        from musetalk.utils.utils import load_all_model  # noqa: PLC0415
+        import torch
+        from musetalk.utils.audio_processor import AudioProcessor
+        from musetalk.utils.face_parsing import FaceParsing
+        from musetalk.utils.utils import load_all_model
+        from transformers import WhisperModel
 
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         models_dir = settings.musetalk_repo / "models"
@@ -83,9 +81,15 @@ def _load_models(settings: Settings, use_float16: bool) -> dict[str, Any]:
 
         _STATE.clear()
         _STATE.update(
-            loaded=True, fp16=use_float16, device=device,
-            vae=vae, unet=unet, pe=pe,
-            whisper=whisper, audio_processor=audio_processor, fp=fp,
+            loaded=True,
+            fp16=use_float16,
+            device=device,
+            vae=vae,
+            unet=unet,
+            pe=pe,
+            whisper=whisper,
+            audio_processor=audio_processor,
+            fp=fp,
             timesteps=torch.tensor([0], device=device),
         )
         logger.info("MuseTalk 模型加载完成")
@@ -133,15 +137,13 @@ class MuseTalkAvatar:
         frames_out.mkdir(parents=True, exist_ok=True)
 
         with _musetalk_env(self.settings):
-            import cv2  # noqa: PLC0415
-            import torch  # noqa: PLC0415
-
-            from musetalk.utils.blending import get_image  # noqa: PLC0415
-            from musetalk.utils.preprocessing import (  # noqa: PLC0415
+            import cv2
+            from musetalk.utils.blending import get_image
+            from musetalk.utils.preprocessing import (
                 coord_placeholder,
                 get_landmark_and_bbox,
             )
-            from musetalk.utils.utils import (  # noqa: PLC0415
+            from musetalk.utils.utils import (
                 datagen,
                 get_file_type,
                 get_video_fps,
@@ -155,10 +157,19 @@ class MuseTalkAvatar:
             if ftype == "video":
                 src_frames_dir = work_dir / "src_frames"
                 src_frames_dir.mkdir(exist_ok=True)
-                run_ffmpeg(self.settings, [
-                    "-v", "fatal", "-i", video, "-start_number", "0",
-                    str(src_frames_dir / "%08d.png"),
-                ], desc="拆帧")
+                run_ffmpeg(
+                    self.settings,
+                    [
+                        "-v",
+                        "fatal",
+                        "-i",
+                        video,
+                        "-start_number",
+                        "0",
+                        str(src_frames_dir / "%08d.png"),
+                    ],
+                    desc="拆帧",
+                )
                 input_img_list = sorted(glob.glob(str(src_frames_dir / "*.png")))
                 fps = get_video_fps(video)
             elif ftype == "image":
@@ -169,7 +180,11 @@ class MuseTalkAvatar:
             # 2. 音频特征(whisper-tiny encoder)
             whisper_input, librosa_length = s["audio_processor"].get_audio_feature(audio)
             whisper_chunks = s["audio_processor"].get_whisper_chunk(
-                whisper_input, device, unet.model.dtype, s["whisper"], librosa_length,
+                whisper_input,
+                device,
+                unet.model.dtype,
+                s["whisper"],
+                librosa_length,
                 fps=fps,
                 audio_padding_length_left=audio_padding_length_left,
                 audio_padding_length_right=audio_padding_length_right,
@@ -205,13 +220,15 @@ class MuseTalkAvatar:
             logger.info("开始 UNet 推理...")
             res_frame_list = []
             total = int(np.ceil(len(whisper_chunks) / batch_size))
-            from tqdm import tqdm  # noqa: PLC0415
+            from tqdm import tqdm
 
             for whisper_batch, latent_batch in tqdm(gen, total=total):
                 audio_feature_batch = pe(whisper_batch)
                 latent_batch = latent_batch.to(dtype=unet.model.dtype)
                 pred = unet.model(
-                    latent_batch, timesteps, encoder_hidden_states=audio_feature_batch,
+                    latent_batch,
+                    timesteps,
+                    encoder_hidden_states=audio_feature_batch,
                 ).sample
                 for res_frame in vae.decode_latents(pred):
                     res_frame_list.append(res_frame)
@@ -227,22 +244,52 @@ class MuseTalkAvatar:
                     res_frame = cv2.resize(res_frame.astype(np.uint8), (x2 - x1, y2 - y1))
                 except cv2.error:
                     continue
-                combine = get_image(ori_frame, res_frame, [x1, y1, x2, y2],
-                                    mode=parsing_mode, fp=s["fp"])
+                combine = get_image(ori_frame, res_frame, [x1, y1, x2, y2], mode=parsing_mode, fp=s["fp"])
                 cv2.imwrite(str(frames_out / f"{i:08d}.png"), combine)
 
         # 7. 合成视频 + 合音轨
         tmp_video = work_dir / "tmp_noaudio.mp4"
-        run_ffmpeg(self.settings, [
-            "-y", "-v", "warning", "-r", str(fps), "-f", "image2",
-            "-i", str(frames_out / "%08d.png"),
-            "-vcodec", "libx264", "-vf", "format=yuv420p", "-crf", "18",
-            str(tmp_video),
-        ], desc="帧合成视频")
-        run_ffmpeg(self.settings, [
-            "-y", "-v", "warning", "-i", audio, "-i", str(tmp_video),
-            "-c:v", "copy", "-c:a", "aac", "-shortest", str(out_path),
-        ], desc="合音轨")
+        run_ffmpeg(
+            self.settings,
+            [
+                "-y",
+                "-v",
+                "warning",
+                "-r",
+                str(fps),
+                "-f",
+                "image2",
+                "-i",
+                str(frames_out / "%08d.png"),
+                "-vcodec",
+                "libx264",
+                "-vf",
+                "format=yuv420p",
+                "-crf",
+                "18",
+                str(tmp_video),
+            ],
+            desc="帧合成视频",
+        )
+        run_ffmpeg(
+            self.settings,
+            [
+                "-y",
+                "-v",
+                "warning",
+                "-i",
+                audio,
+                "-i",
+                str(tmp_video),
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-shortest",
+                str(out_path),
+            ],
+            desc="合音轨",
+        )
 
         shutil.rmtree(work_dir, ignore_errors=True)
         logger.info(f"数字人视频生成完成: {out_path}")
@@ -251,7 +298,7 @@ class MuseTalkAvatar:
     def unload(self) -> None:
         _STATE.clear()
         try:
-            import torch  # noqa: PLC0415
+            import torch
 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()

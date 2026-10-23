@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import media as _media
-
 from ..config import Settings
 from ..ffmpeg_utils import get_ffmpeg
 
@@ -28,17 +27,20 @@ def probe_video(settings: Settings, video: Path) -> tuple[float, int, int]:
     return _media.probe_video(video, ffmpeg=get_ffmpeg(settings))
 
 
-def detect_silences(settings: Settings, src: Path, work_dir: Path,
-                    min_dur: float = MAX_SILENCE_LENGTH,
-                    noise_db: float = -30.0) -> list[dict]:
+def detect_silences(
+    settings: Settings, src: Path, work_dir: Path, min_dur: float = MAX_SILENCE_LENGTH, noise_db: float = -30.0
+) -> list[dict]:
     """检测音视频中的静音段,结果缓存到 work_dir(JSON)。"""
-    return _media.detect_silences(src, work_dir, min_dur=min_dur, noise_db=noise_db,
-                                  ffmpeg=get_ffmpeg(settings))
+    return _media.detect_silences(src, work_dir, min_dur=min_dur, noise_db=noise_db, ffmpeg=get_ffmpeg(settings))
 
 
-def cut_silence(settings: Settings, video: Path, output: Path, work_dir: Path,
-                noise_db: float = -30.0,
-                min_dur: float = MAX_SILENCE_LENGTH) -> Path:
+def cut_silence(
+    settings: Settings,
+    video: Path,
+    output: Path,
+    work_dir: Path,
+    noise_db: float = -30.0,
+    min_dur: float = MAX_SILENCE_LENGTH,
+) -> Path:
     """切除静音段并交叉淡化拼接。video/output 均须位于 work_dir 内。"""
-    return _media.cut_silence(video, output, work_dir, noise_db=noise_db,
-                              min_dur=min_dur, ffmpeg=get_ffmpeg(settings))
+    return _media.cut_silence(video, output, work_dir, noise_db=noise_db, min_dur=min_dur, ffmpeg=get_ffmpeg(settings))
