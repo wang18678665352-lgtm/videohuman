@@ -60,7 +60,8 @@ export function uploadAsset(file, kind) {
   const fd = new FormData()
   fd.append('file', file)
   // 大视频上传可能很慢,不套用默认 30s 超时
-  return http.post(`/assets?kind=${kind}`, fd, { timeout: 0 })
+  // consent=true 表示用户已在界面上确认授权声明;服务端会存档该确认
+  return http.post(`/assets?kind=${kind}&consent=true`, fd, { timeout: 0 })
 }
 
 // 状态展示统一在这里定义,列表页与详情页共用

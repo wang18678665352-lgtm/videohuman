@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import shutil
@@ -43,6 +44,14 @@ PATH_PARAMS = ("audio", "ref_audio", "avatar_video", "bgm_path", "subtitle_font"
 # 鉴权失败限速:同一 IP 在窗口期内失败次数超限即临时封禁
 AUTH_FAIL_WINDOW_S = 300
 AUTH_FAIL_MAX = 20
+
+# 上传素材的授权声明(前端原文展示,服务端随上传记录存档于 assets/.consent.jsonl)
+CONSENT_STATEMENTS = {
+    "audio": "我确认:该音频中的声音属于本人,或已取得声音权利人的书面授权,同意将其用于 AI 声音合成。",
+    "video": "我确认:该视频中的人物肖像属于本人,或已取得肖像权利人的书面授权,同意将其用于 AI 数字人生成。",
+    "bgm": "我确认:已取得该音乐的合法使用授权(含商用场景,如适用)。",
+}
+CONSENT_LOG = ".consent.jsonl"
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -242,6 +251,7 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
             "bilibili_cookie_exists": (cookies_dir / "bilibili.json").exists(),
             "stage_names": list(STAGE_NAMES),
             "max_upload_mb": settings.max_upload_mb,
+            "consent_statements": CONSENT_STATEMENTS,
         }
 
     # ------------------------------------------------------------ 素材
@@ -271,7 +281,14 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
         }
 
     @app.post("/api/assets")
-    def upload_asset(file: UploadFile, kind: str = Query(..., pattern="^(audio|video|bgm)$")) -> dict[str, Any]:
+    def upload_asset(
+        request: Request,
+        file: UploadFile,
+        kind: str = Query(..., pattern="^(audio|video|bgm)$"),
+        consent: bool = Query(False, description="上传者确认已获得授权(见 /api/settings 的 consent_statements)"),
+    ) -> dict[str, Any]:
+        if not consent:
+            raise HTTPException(400, f"上传前需确认授权声明:{CONSENT_STATEMENTS[kind]}")
         ext = Path(file.filename or "").suffix.lower()
         allowed = AUDIO_EXTS if kind in ("audio", "bgm") else VIDEO_EXTS
         if ext not in allowed:
@@ -282,10 +299,12 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
         limit = settings.max_upload_mb * 1024 * 1024
         tmp = dest.with_name(f".{dest.name}.{uuid.uuid4().hex[:8]}.part")
         written = 0
+        digest = hashlib.sha256()
         try:
             with tmp.open("wb") as f:
                 while chunk := file.file.read(1 << 20):
                     written += len(chunk)
+                    digest.update(chunk)
                     if written > limit:
                         raise HTTPException(413, f"文件超过上限 {settings.max_upload_mb} MB")
                     f.write(chunk)
@@ -294,7 +313,19 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
             tmp.replace(dest)
         finally:
             tmp.unlink(missing_ok=True)
-        logger.info(f"素材上传: {dest.name} ({written / 1e6:.1f} MB)")
+        # 授权存档:谁(IP)、何时、对哪个文件(sha256 防替换)确认了哪条声明
+        record = {
+            "file": _rel(dest),
+            "kind": kind,
+            "sha256": digest.hexdigest(),
+            "size": written,
+            "statement": CONSENT_STATEMENTS[kind],
+            "client_ip": request.client.host if request.client else None,
+            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        }
+        with (settings.assets / CONSENT_LOG).open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        logger.info(f"素材上传: {dest.name} ({written / 1e6:.1f} MB),授权声明已存档")
         return {"ok": True, "path": _rel(dest)}
 
     @app.get("/api/asset-file")

@@ -1,7 +1,8 @@
-"""rewrite stage — LLM 文案改写(OpenAI 兼容接口,依赖注入,去全局状态)。
+"""rewrite stage — LLM 文案润色(OpenAI 兼容接口,依赖注入,去全局状态)。
 
-搬自 v1 ai_processing/text_rewriter.py:clean_api_key + 抖音改写 prompt 原样保留。
-阶段 1 约定:未配置 llm_api_key 时**直通**(原文落盘),先打通主链路。
+未配置 llm_api_key 时**直通**(原文落盘)。
+提示词:默认用内置合规版 DEFAULT_PROMPT(口播化润色 + 纠错,忠于原意,不做规避查重);
+config llm_prompt_file 可指向自定义提示词文件(UTF-8 纯文本),由使用者对其内容负责。
 """
 
 from __future__ import annotations
@@ -11,31 +12,17 @@ from pathlib import Path
 
 from loguru import logger
 
+from ..config import Settings
 from ..pipeline import Stage, StageContext
 
-# v1 原样保留的抖音爆款改写 prompt(业务资产)
-SYSTEM_PROMPT = """你是一名顶尖抖音爆款文案基因工程师，严格遵循以下协议执行文案改造：
-1、**核心任务：** 基于原始文案，改写一篇高质量、高传播力的视频口播文案。
-2、**内容忠实度：** 保持原始叙事时序与主题结构50%不变。
-3、**清晰度与结构：** 叙事清晰，内容层次分明。改写后文案字数与原文接近。
-4、**深度降重（原创保障）：**
-    *   同义词链替换（三级跳转以上）。
-    *   句式拓扑变形（陈述/疑问/感叹转换）。
-    *   案例素材置换（80%替换率）。
-    *   **确保重复率≤30%，输出文案属于原创。**
-5. **抖音爆款结构：**
-    *   **首行：** 必须植入强吸引力、高悬念的“黄金三秒”锚点。
-    *   **互动激发：** 每3行设置一个UGC激发槽点（争议点、共鸣点、疑问点）。
-6、**关键词策略（自然融入）：**
-    *   自然埋入3个不同的垂类关键词。
-    *   每个关键词在正文中出现2次（词频=2）。
-    *   **严格禁止任何形式的关键词标注、说明或额外输出。**
-7、**合规与表达：**
-    *   严格遵循抖音违禁词库v2025.2。
-    *   禁用绝对化表述（如“最”、“第一”、“绝对”等）。
-8、**输出格式：**
-    *   只输出最终改写完成的纯净中文文案正文，禁止任何解释/标注/问候。
-    *   每行为独立语义单元，每行以中文逗号（，）结尾。
+# 内置默认提示词:只做口播化润色与纠错,保持原意与事实,不以"降重/规避查重"为目标
+DEFAULT_PROMPT = """你是专业的短视频口播文案编辑。请在不改变原意和事实的前提下润色下面的文案:
+1. 修正错别字、语病和语音转写错误(同音字、断句错误等);
+2. 调整为适合口播的表达:句子简短、节奏清晰、口语自然;
+3. 保持原文的观点、事实、数据和叙事顺序,不编造内容,不夸大效果;
+4. 避免绝对化用语(如"最""第一""绝对"等)及违反广告法或平台规范的表述;
+5. 字数与原文接近;
+6. 只输出润色后的正文,不要任何解释、标注或问候。每行一个完整语义单元。
 """
 
 
@@ -52,6 +39,19 @@ def clean_api_key(api_key_input: str | None) -> str | None:
         except (json.JSONDecodeError, TypeError):
             key = key.strip("[]\"' ")
     return key or None
+
+
+def load_prompt(settings: Settings) -> str:
+    """config llm_prompt_file 非空时读取自定义提示词,文件缺失直接报错(不静默回退)。"""
+    if not settings.llm_prompt_file:
+        return DEFAULT_PROMPT
+    p = settings.abs_path(Path(settings.llm_prompt_file))
+    if not p.is_file():
+        raise FileNotFoundError(f"llm_prompt_file 指向的提示词文件不存在: {p}")
+    prompt = p.read_text(encoding="utf-8").strip()
+    if not prompt:
+        raise ValueError(f"提示词文件为空: {p}")
+    return prompt
 
 
 class RewriteStage(Stage):
@@ -90,6 +90,7 @@ class RewriteStage(Stage):
         from openai import OpenAI
 
         s = ctx.settings
+        prompt = load_prompt(s)  # 在 try 外:提示词配置错误应让 stage 失败,而不是回退原文
         # config.toml/env 里常带着引号书写,统一剥掉;不设 base_url 时 SDK 默认走官方地址
         base_url = s.llm_base_url.strip().strip("\"'") or None
         # 显式超时 + 有限重试:LLM 接口抖动不应让整条流水线卡死在这里
@@ -98,15 +99,15 @@ class RewriteStage(Stage):
             completion = client.chat.completions.create(
                 model=s.llm_model,
                 messages=[
-                    {"role": "system", "content": "你是一个专业的文案修改助手"},
-                    {"role": "user", "content": f"{SYSTEM_PROMPT}\n\n原文案:{text}"},
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": f"原文案:\n{text}"},
                 ],
                 temperature=0.7,
             )
             result = (completion.choices[0].message.content or "").strip()
             if not result:
                 raise RuntimeError("LLM 返回空内容")
-            logger.info(f"LLM 改写完成({s.llm_model}),{len(text)}字 → {len(result)}字")
+            logger.info(f"LLM 润色完成({s.llm_model}),{len(text)}字 → {len(result)}字")
             return result
         except Exception as e:
             # v1 行为:改写失败回退原文,不阻断流水线

@@ -13,10 +13,10 @@ CLI 优先的**纯本地**数字人口播视频流水线:抖音视频下载 → 
 |---|---|---|
 | download | 抖音视频下载(登录态 cookie) | Playwright |
 | transcribe | 文案提取(ASR) | SenseVoice-Small |
-| rewrite | 文案改写/纠错(LLM,OpenAI 兼容接口) | DeepSeek 等,自配 |
+| rewrite | 文案口播化润色/纠错(LLM,OpenAI 兼容接口) | DeepSeek 等,自配 |
 | tts | 语音合成(音色克隆) | CosyVoice3 |
 | avatar | 数字人口型同步 | MuseTalk 1.5(可选 LstmSync,需自备) |
-| postprocess | 静音切除、字幕、BGM、背景图、水印、封面 | ffmpeg |
+| postprocess | 静音切除、字幕、BGM、背景图、水印、封面、AI 生成标识 | ffmpeg |
 | publish | 多平台发布 | 抖音 / B 站 |
 
 ## 硬件要求
@@ -70,6 +70,19 @@ LLM 改写需要配置 API Key(默认 DeepSeek 兼容接口):设置环境变量
 
 发布功能需要各平台登录态:抖音用 `uv run vh login` 扫码;B 站用 biliup 登录 JSON,
 均放在 `configs/cookies/`(已在 .gitignore 中)。
+
+## 合规内置项
+
+- **AI 生成标识**:成片默认在画面左上角加"本视频由AI生成"角标(显式标识),并在 MP4 元数据写入
+  `AIGC` 字段(隐式标识,字段参照 GB 45438-2025,不可关闭);封面同样带 AI 标识。
+  角标可经 `params.postprocess.ai_label=false` 关闭(会告警),文字/位置可用 `ai_label_text`、
+  `ai_label_position` 调整。角标添加失败时 postprocess 直接报错,不会产出无标识成片。
+  发布到平台时,仍请在平台侧勾选"内容由 AI 生成"等声明。
+- **素材授权确认**:工作台上传声音/形象/BGM 素材前须确认授权声明,确认记录(文件 sha256、
+  声明原文、IP、时间)追加到 `assets/.consent.jsonl` 存档。直接拷入 `assets/` 的文件不经此流程,
+  使用者需自行留存授权凭证。
+- **文案润色**:内置提示词只做口播化润色与纠错、忠于原意;自定义提示词用 `llm_prompt_file` 配置,
+  内容由使用者负责。
 
 ## 生产部署与运维
 
@@ -163,5 +176,6 @@ videohuman/
 本项目代码以 [Apache-2.0](LICENSE) 发布。第三方组件的许可证与署名见 [NOTICE](NOTICE);
 字体的来源与许可见 [assets/font/LICENSES.md](assets/font/LICENSES.md)。
 
-**免责声明**:本项目仅提供技术工具。使用者应确保对输入素材拥有合法权利,
+**免责声明**:本项目仅提供技术工具。使用者应确保对输入素材(包括抖音克隆模式下载的视频、
+参考声音与形象)拥有合法权利,
 生成内容需遵守所在地法律法规及各平台规则(包括 AI 生成内容标识要求)。

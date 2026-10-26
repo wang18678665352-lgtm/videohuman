@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     llm_model: str = "deepseek-chat"
     llm_timeout: float = 120.0  # 单次请求超时(秒)
 
+    # AI 生成内容标识(合规):画面角标文字 + 隐式元数据里的内容制作者名称
+    aigc_label_text: str = "本视频由AI生成"
+    aigc_producer: str = "videohuman"
+
+    # LLM 改写提示词文件(空=内置合规版:润色/纠错,忠于原意);详见 stages/rewrite.py
+    llm_prompt_file: str = ""
+
     # Web 工作台(服务端)
     web_token: str = ""  # 访问令牌,env VH_WEB_TOKEN;非本机监听时必须设置
     cors_origins: str = ""  # 逗号分隔的跨域白名单;同源部署留空即可

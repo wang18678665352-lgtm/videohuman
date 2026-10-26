@@ -188,16 +188,21 @@ def test_job_file_blocks_traversal(client: TestClient, settings: Settings) -> No
 
 
 def test_asset_upload_list_and_preview(client: TestClient, settings: Settings) -> None:
-    r = client.post("/api/assets?kind=audio", files={"file": ("../../evil name.wav", b"RIFF", "audio/wav")})
+    r = client.post(
+        "/api/assets?kind=audio&consent=true", files={"file": ("../../evil name.wav", b"RIFF", "audio/wav")}
+    )
     assert r.status_code == 200, r.text
     path = r.json()["path"]
     assert Path(path).name == "evil name.wav"
     assert (settings.assets / "evil name.wav").read_bytes() == b"RIFF"
     # 同名再传不覆盖,自动改名
-    r2 = client.post("/api/assets?kind=audio", files={"file": ("evil name.wav", b"RIFF2", "audio/wav")})
+    r2 = client.post("/api/assets?kind=audio&consent=true", files={"file": ("evil name.wav", b"RIFF2", "audio/wav")})
     assert Path(r2.json()["path"]).name == "evil name_1.wav"
-    assert client.post("/api/assets?kind=audio", files={"file": ("x.exe", b"MZ", "x")}).status_code == 400
-    assert client.post("/api/assets?kind=audio", files={"file": ("e.wav", b"", "audio/wav")}).status_code == 400
+    assert client.post("/api/assets?kind=audio&consent=true", files={"file": ("x.exe", b"MZ", "x")}).status_code == 400
+    assert (
+        client.post("/api/assets?kind=audio&consent=true", files={"file": ("e.wav", b"", "audio/wav")}).status_code
+        == 400
+    )
     assert client.get("/api/assets").json()["audios"]
     assert client.get("/api/asset-file", params={"path": path}).content == b"RIFF"
     # 前缀相同的兄弟目录不能绕过素材目录限制
@@ -207,11 +212,25 @@ def test_asset_upload_list_and_preview(client: TestClient, settings: Settings) -
     assert client.get("/api/asset-file", params={"path": str(sibling / "x.wav")}).status_code == 404
 
 
+def test_upload_requires_consent_and_records_it(client: TestClient, settings: Settings) -> None:
+    r = client.post("/api/assets?kind=video", files={"file": ("me.mp4", b"data", "video/mp4")})
+    assert r.status_code == 400 and "授权" in r.json()["detail"]
+    assert not (settings.assets / "me.mp4").exists()
+
+    r = client.post("/api/assets?kind=video&consent=true", files={"file": ("me.mp4", b"data", "video/mp4")})
+    assert r.status_code == 200
+    rec = json.loads((settings.assets / ".consent.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    assert rec["kind"] == "video" and rec["size"] == 4
+    assert rec["sha256"] == "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+    assert rec["statement"] == client.get("/api/settings").json()["consent_statements"]["video"]
+    assert ".consent.jsonl" not in str(client.get("/api/assets").json())
+
+
 def test_upload_size_limit(settings: Settings, runner: FakeRunner) -> None:
     settings.max_upload_mb = 1
     with TestClient(create_app(settings, runner=runner)) as c:
         big = b"0" * (1024 * 1024 + 1)
-        r = c.post("/api/assets?kind=video", files={"file": ("big.mp4", big, "video/mp4")})
+        r = c.post("/api/assets?kind=video&consent=true", files={"file": ("big.mp4", big, "video/mp4")})
         assert r.status_code == 413
     assert not list(settings.assets.glob("*big*"))
 

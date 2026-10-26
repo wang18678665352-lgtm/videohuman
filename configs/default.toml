@@ -19,3 +19,10 @@ publish_cookies_dir = "configs/cookies"
 # avatar_engine = "musetalk"
 # lstmsync 引擎目录(仅 avatar_engine = "lstmsync" 时使用;仓库不附带,需自行获取)
 lstmsync_dir = "third_party/lstmsync"
+
+# AI 生成内容标识(合规):成片画面角标文字;隐式元数据(AIGC 字段)里的内容制作者名称
+# aigc_label_text = "本视频由AI生成"
+# aigc_producer = "videohuman"
+
+# LLM 润色提示词文件(UTF-8 纯文本);留空用内置合规版(润色纠错、忠于原意)
+# llm_prompt_file = "configs/prompts/rewrite.txt"
