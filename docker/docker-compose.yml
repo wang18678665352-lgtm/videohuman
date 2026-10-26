@@ -10,6 +10,13 @@ services:
       - "8100:8100"
     gpus: all
     restart: unless-stopped
+    # 单 GPU 串行队列;stop 时给当前 stage 一点收尾时间(落盘 manifest)
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     env_file: .env
     environment:
       PYTHONUTF8: "1"
@@ -22,5 +29,6 @@ services:
       - ../assets:/app/assets
       - ../workspace:/app/workspace
       - ../configs:/app/configs
+      - ../logs:/app/logs
       # 可选:仅使用 lstmsync 引擎时取消注释,并把左侧换成你本机的 lstmsync 引擎目录
       # - /path/to/lstmsync:/opt/lstmsync:ro

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -81,10 +82,11 @@ def run_job(
     pipeline: Pipeline | None = None,
     only: list[str] | None = None,
     resume: bool = True,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> JobManifest:
     settings = settings or load_settings()
     pipeline = pipeline or build_pipeline(settings)
-    return pipeline.run(spec.job_id, params=spec.params, only=only, resume=resume)
+    return pipeline.run(spec.job_id, params=spec.params, only=only, resume=resume, should_cancel=should_cancel)
 
 
 def run_batch(

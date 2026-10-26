@@ -16,20 +16,44 @@ from typing import Any
 import typer
 from loguru import logger
 
+from vh_core import __version__
 from vh_core import capability as cap_mod
 from vh_core.api import load_batch, load_spec, run_batch, run_job
 from vh_core.config import load_settings
-from vh_core.models import JobSpec
+from vh_core.models import STAGE_NAMES, JobSpec
 from vh_core.pipeline import PipelineStageError
 
 app = typer.Typer(help="videohuman — 数字人口播视频流水线(纯本地)", no_args_is_help=True)
 
-STAGE_NAMES = ["download", "transcribe", "rewrite", "tts", "avatar", "postprocess", "publish"]
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def _setup_logging(verbose: bool) -> None:
     logger.remove()
     logger.add(sys.stderr, level="DEBUG" if verbose else "INFO")
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"videohuman {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False, "--version", callback=_version_callback, is_eager=True, help="显示版本号并退出"
+    ),
+) -> None:
+    """videohuman — 数字人口播视频流水线(纯本地)。"""
+
+
+def _build_spec(job_id: str, params: dict[str, Any]) -> JobSpec:
+    try:
+        return JobSpec(job_id=job_id, params=params)
+    except ValueError as e:
+        typer.echo(f"错误:{e}", err=True)
+        raise typer.Exit(code=2) from e
 
 
 def _emit(data: Any) -> None:
@@ -104,7 +128,7 @@ def run(
     if publish_tags:
         params["publish_tags"] = [t.strip() for t in publish_tags.split(",") if t.strip()]
     try:
-        manifest = run_job(JobSpec(job_id=jid, params=params), resume=not no_resume)
+        manifest = run_job(_build_spec(jid, params), resume=not no_resume)
     except PipelineStageError as e:
         _emit({"ok": False, "failed_stage": e.stage_name, "error": str(e)})
         raise typer.Exit(code=1) from e
@@ -153,14 +177,85 @@ def batch(
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8100, "--port"),
+    allow_no_auth: bool = typer.Option(
+        False, "--allow-no-auth", help="允许在非本机地址上无 token 启动(不安全,仅限可信内网调试)"
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
     """启动 Web 工作台(FastAPI + web/dist 静态托管)。"""
     _setup_logging(verbose)
     import uvicorn
 
-    typer.echo(f"videohuman 工作台: http://{host}:{port}")
+    settings = load_settings()
+    if not settings.web_token.strip() and host not in LOOPBACK_HOSTS:
+        if not allow_no_auth:
+            typer.echo(
+                f"错误:监听 {host} 会把工作台暴露给其他机器,但未设置访问令牌 VH_WEB_TOKEN。\n"
+                '  生成令牌: python -c "import secrets;print(secrets.token_urlsafe(32))"\n'
+                "  确认要在可信内网无鉴权运行,加 --allow-no-auth",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        logger.warning(f"监听 {host} 且未启用鉴权,任何能访问该端口的人都能操作工作台")
+
+    # 服务端日志按天滚动落盘,保留 14 天,便于事后排障
+    settings.logs.mkdir(parents=True, exist_ok=True)
+    logger.add(
+        settings.logs / "server_{time:YYYY-MM-DD}.log",
+        level="DEBUG" if verbose else "INFO",
+        rotation="00:00",
+        retention="14 days",
+        encoding="utf-8",
+        enqueue=True,
+    )
+    typer.echo(f"videohuman {__version__} 工作台: http://{host}:{port}")
     uvicorn.run("vh_server.main:app", host=host, port=port, log_level="info")
+
+
+@app.command()
+def doctor(
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+):
+    """环境自检:GPU / ffmpeg / 模型权重 / 字体 / 前端构建 / 鉴权配置,输出 JSON。"""
+    _setup_logging(verbose)
+    from vh_core.config import PROJECT_ROOT
+    from vh_core.ffmpeg_utils import get_ffmpeg
+
+    s = load_settings()
+    checks: list[dict[str, Any]] = []
+
+    def check(name: str, ok: bool, detail: str = "", required: bool = True) -> None:
+        checks.append({"name": name, "ok": ok, "required": required, "detail": detail})
+
+    info = cap_mod.detect_capability()
+    check("cuda_gpu", info.has_cuda, ", ".join(f"{g.name} {g.vram_gb}GB" for g in info.gpus) or "未检测到 GPU")
+    try:
+        check("ffmpeg", True, get_ffmpeg(s))
+    except RuntimeError as e:
+        check("ffmpeg", False, str(e))
+    check("asr_model", (s.models / "SenseVoiceSmall").is_dir(), str(s.models / "SenseVoiceSmall"))
+    tts_dir = s.cosyvoice_model if s.tts_engine == "cosyvoice3" else s.indextts_model
+    check(f"tts_model({s.tts_engine})", tts_dir.is_dir(), str(tts_dir))
+    if s.avatar_engine == "lstmsync":
+        lstm = s.abs_path(Path(s.lstmsync_dir))
+        check("avatar_engine(lstmsync)", lstm.is_dir(), str(lstm))
+    else:
+        mt = s.musetalk_repo / "models"
+        check("avatar_engine(musetalk)", mt.is_dir(), str(mt))
+    fonts = s.assets / "font"
+    check("subtitle_fonts", fonts.is_dir() and any(fonts.glob("*.tt[fc]")), str(fonts), required=False)
+    check("llm_api_key", bool(s.llm_api_key), "未配置时 rewrite 直通原文", required=False)
+    check(
+        "web_dist",
+        (PROJECT_ROOT / "web" / "dist" / "index.html").exists(),
+        "cd web && npm ci && npm run build",
+        required=False,
+    )
+    check("web_token", bool(s.web_token.strip()), "对外提供服务时必须设置 VH_WEB_TOKEN", required=False)
+    ok = all(c["ok"] for c in checks if c["required"])
+    _emit({"ok": ok, "version": __version__, "checks": checks})
+    if not ok:
+        raise typer.Exit(code=1)
 
 
 def _single_stage(stage_name: str):
@@ -200,7 +295,7 @@ def _single_stage(stage_name: str):
         if publish_tags:
             params["publish_tags"] = [t.strip() for t in publish_tags.split(",") if t.strip()]
         try:
-            manifest = run_job(JobSpec(job_id=job_id, params=params), only=[stage_name], resume=not no_resume)
+            manifest = run_job(_build_spec(job_id, params), only=[stage_name], resume=not no_resume)
         except PipelineStageError as e:
             _emit({"ok": False, "failed_stage": e.stage_name, "error": str(e)})
             raise typer.Exit(code=1) from e

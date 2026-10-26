@@ -61,7 +61,7 @@
 
 <script setup>
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { assetUrl, getAssets, getSettings, loginDouyin, loginDouyinStatus, uploadAsset } from '../api.js'
 
 const tab = ref('audio')
@@ -80,7 +80,21 @@ async function refresh() {
   Object.assign(settings, await getSettings())
 }
 
+async function confirmConsent(kind, file) {
+  const statement = settings.consent_statements?.[kind]
+  if (!statement) return true
+  try {
+    await ElMessageBox.confirm(statement, `授权确认:${file.name}`, {
+      type: 'warning', confirmButtonText: '我确认并上传', cancelButtonText: '取消',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function doUpload(option, kind) {
+  if (!(await confirmConsent(kind, option.file))) return
   try {
     await uploadAsset(option.file, kind)
     ElMessage.success('上传成功')

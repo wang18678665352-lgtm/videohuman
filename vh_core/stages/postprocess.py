@@ -1,5 +1,9 @@
-"""postprocess stage — 六步编排:静音切除 → 背景图合成 → 字幕烧录(ASR 对齐)
-→ BGM 混音 → 视频水印;封面在第 2 步后、字幕前抽帧生成。
+"""postprocess stage — 编排:静音切除 → 背景图合成 → 字幕烧录(ASR 对齐)
+→ BGM 混音 → 视频水印 → AI 生成标识;封面在第 2 步后、字幕前抽帧生成。
+
+AI 生成内容标识(合规,参照《人工智能生成合成内容标识办法》与 GB 45438-2025):
+- 显式标识:画面角标(默认开启,params.postprocess.ai_label=False 可关但会告警);
+- 隐式标识:成品 MP4 元数据写入 AIGC 字段(始终写入,不可关闭)。
 
 每步可用 params["postprocess"] 的键开关(默认值见各步注释),前一步输出
 是后一步输入,中间文件 stepN_*.mp4 落 stage_dir,结束后清理。
@@ -8,9 +12,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import random
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -39,6 +45,23 @@ _TRAILING_PUNCT = ",。!?!;;"
 def _strip_trailing_punct(seg: str) -> str:
     """剥掉句尾连续的标点(参数是字符集,与 str.strip 语义不同,故单列成函数)。"""
     return seg.rstrip(_TRAILING_PUNCT)
+
+
+def aigc_metadata(settings: Settings, job_id: str) -> str:
+    """AIGC 隐式标识 JSON(字段名参照 GB 45438-2025 元数据隐式标识格式)。"""
+    return json.dumps(
+        {
+            "Label": "1",  # 1 = 属于人工智能生成合成内容
+            "ContentProducer": settings.aigc_producer,
+            "ProduceID": job_id,
+            "ReservedCode1": "",
+            "ContentPropagator": "",
+            "PropagateID": "",
+            "ReservedCode2": "",
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 def _video_info(settings: Settings, video: Path) -> tuple[float, int, int]:
@@ -237,7 +260,7 @@ class PostprocessStage(Stage):
 
         pp = dict(ctx.params.get("postprocess", {}))
         cur = ctx.stage_dir / "step0_src.mp4"
-        cur.write_bytes(src.read_bytes())  # 统一在 stage_dir 内相对路径操作
+        shutil.copyfile(src, cur)  # 统一在 stage_dir 内相对路径操作(流式拷贝,不整片读进内存)
         silence_applied = False
 
         # 1. 静音切除 silence_cut(默认 True)
@@ -380,7 +403,29 @@ class PostprocessStage(Stage):
             except Exception as e:
                 logger.warning(f"视频水印失败,保留无水印版本: {e}")
 
-        # 6. 封面生成 cover(默认 True):抽中点帧,可选多色文字 + AI 标识
+        # 6. AI 生成显式标识 ai_label(默认 True):画面角标。合规要求,失败即报错,不静默产出无标识成片
+        if pp.get("ai_label", True):
+            nxt = ctx.stage_dir / "step6_ailabel.mp4"
+            try:
+                add_text_watermark(
+                    s,
+                    cur,
+                    nxt,
+                    ctx.stage_dir,
+                    str(pp.get("ai_label_text") or s.aigc_label_text),
+                    font_dir=s.assets / "font",
+                    font_size=int(pp.get("ai_label_fontsize", 36)),
+                    font_color=pp.get("ai_label_color", "white"),
+                    position=pp.get("ai_label_position", "top_left"),
+                    margin=int(pp.get("ai_label_margin", 30)),
+                )
+            except Exception as e:
+                raise RuntimeError(f"AI 生成标识添加失败(检查 assets/font 是否有中文字体): {e}") from e
+            cur = nxt
+        else:
+            logger.warning("已关闭画面 AI 生成标识(ai_label=False):发布前请确认符合平台与法规的标识要求")
+
+        # 7. 封面生成 cover(默认 True):抽中点帧,可选多色文字 + AI 标识
         outputs: dict[str, Path] = {}
         if pp.get("cover", True):
             try:
@@ -388,9 +433,28 @@ class PostprocessStage(Stage):
             except Exception as e:
                 logger.warning(f"封面生成失败: {e}")
 
+        # 8. 隐式标识:写 AIGC 元数据并封装成品(流拷贝不重编码;faststart 便于网页边下边播)
         final = ctx.stage_dir / "final.mp4"
-        if cur.name != final.name:
-            final.write_bytes(cur.read_bytes())
+        run_ffmpeg(
+            s,
+            [
+                "-i",
+                cur.name,
+                "-map",
+                "0",
+                "-c",
+                "copy",
+                "-metadata",
+                f"AIGC={aigc_metadata(s, ctx.job_id)}",
+                "-metadata",
+                f"comment={s.aigc_label_text}",
+                "-movflags",
+                "+faststart+use_metadata_tags",
+                final.name,
+            ],
+            desc="写入 AIGC 隐式标识",
+            cwd=ctx.stage_dir,
+        )
         outputs["final"] = final
         if (ctx.stage_dir / "sub.ass").exists():
             outputs["subtitle"] = ctx.stage_dir / "sub.ass"

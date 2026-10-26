@@ -17,6 +17,7 @@
       <el-table-column label="状态" width="100">
         <template #default="{ row }">
           <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
+          <div v-if="row.queue_position" class="sub">第 {{ row.queue_position }} 位</div>
         </template>
       </el-table-column>
       <el-table-column label="环节进度" min-width="220">
@@ -37,11 +38,14 @@
       <el-table-column prop="created_at" label="创建时间" width="180">
         <template #default="{ row }">{{ fmtTime(row.created_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="300" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click.stop="$router.push(`/jobs/${row.job_id}`)">详情</el-button>
-          <el-button size="small" @click.stop="rerun(row)" :disabled="row.status === 'running' || row.status === 'queued'">重跑</el-button>
-          <el-button size="small" type="success" @click.stop="openPublish(row)" :disabled="!row.has_final">发布</el-button>
+          <el-button v-if="isActive(row.status)" size="small" type="warning" plain
+            :disabled="row.status === 'cancelling'" @click.stop="cancel(row)">取消</el-button>
+          <el-button v-else size="small" @click.stop="rerun(row)">重跑</el-button>
+          <el-button size="small" type="success" @click.stop="openPublish(row)" :disabled="!row.has_final || isActive(row.status)">发布</el-button>
+          <el-button size="small" type="danger" plain @click.stop="remove(row)" :disabled="isActive(row.status)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -71,9 +75,11 @@
 
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { VideoPlay } from '@element-plus/icons-vue'
-import { listJobs, runJob, getSettings } from '../api.js'
+import {
+  STATUS_TEXT, STATUS_TYPE, cancelJob, deleteJob, getSettings, isActive, listJobs, runJob,
+} from '../api.js'
 
 const jobs = ref([])
 const loading = ref(false)
@@ -86,10 +92,10 @@ const publishJob = ref(null)
 const publishForm = ref({ platforms: ['douyin'], title: '', tags: '' })
 
 function statusType(s) {
-  return { done: 'success', failed: 'danger', running: 'primary', queued: 'info' }[s] || 'info'
+  return STATUS_TYPE[s] || 'info'
 }
 function statusText(s) {
-  return { done: '完成', failed: '失败', running: '运行中', queued: '排队中', interrupted: '中断' }[s] || s
+  return STATUS_TEXT[s] || s
 }
 function dotClass(s) {
   return { success: 'ok', skipped: 'skip', failed: 'bad', running: 'run' }[s] || 'pending'
@@ -99,16 +105,39 @@ function fmtTime(t) {
 }
 
 async function refresh() {
-  jobs.value = await listJobs()
-  const active = jobs.value.some((j) => j.status === 'running' || j.status === 'queued')
+  let active = false
+  try {
+    jobs.value = await listJobs()
+    active = jobs.value.some((j) => isActive(j.status))
+  } catch (e) {
+    ElMessage.error(`刷新任务列表失败: ${e.message}`)
+  }
   clearTimeout(timer)
   timer = setTimeout(refresh, active ? 2000 : 10000)
 }
 
-async function rerun(row) {
-  await runJob(row.job_id, { resume: true })
-  ElMessage.success(`已入队续跑 ${row.job_id}`)
+async function act(fn, okMsg) {
+  try {
+    await fn()
+    ElMessage.success(okMsg)
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
   refresh()
+}
+
+const rerun = (row) => act(() => runJob(row.job_id, { resume: true }), `已入队续跑 ${row.job_id}`)
+const cancel = (row) => act(() => cancelJob(row.job_id), `已请求取消 ${row.job_id}`)
+
+async function remove(row) {
+  try {
+    await ElMessageBox.confirm(`删除任务 ${row.job_id} 及其全部产物?此操作不可恢复。`, '删除确认', {
+      type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  act(() => deleteJob(row.job_id), `已删除 ${row.job_id}`)
 }
 
 function openPublish(row) {
@@ -153,6 +182,7 @@ onUnmounted(() => clearTimeout(timer))
 <style scoped>
 .bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .bar h2 { margin: 0; }
+.sub { color: #909399; font-size: 12px; }
 .stage-dots { display: flex; gap: 6px; }
 .dot { width: 14px; height: 14px; border-radius: 3px; background: #dcdfe6; display: inline-block; }
 .dot.ok { background: #67c23a; }
