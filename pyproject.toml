@@ -53,6 +53,24 @@ dependencies = [
     "python-multipart>=0.0.32",
 ]
 
+# cu128 索引里混着一个 torch==2.0.1,只有 aarch64 轮子。
+# 通用求解会把「Linux x86_64 或 Windows」并成同一个分支;一旦回溯到 2.0.1,
+# 锁文件会写成已解决,uv sync 却在这两块平台上下不了轮子。
+# required-environments 要求这种没有源码包的依赖必须带上目标平台的轮子。
+[tool.uv]
+required-environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+# openai-whisper==20231117 的 setup.py 会在「正在跑 uv lock 的机器是 Linux x86_64」时,
+# 把 triton>=2,<3 写进依赖,而且不带环境标记。cu128 的 torch 2.7+ 在 Linux 上要 triton 3.x,
+# 两边合在一起就无解,求解器只好退回那个 2.0.1。
+# whisper 只用 triton 做可选的 CUDA 时间戳加速,失败会退回普通 PyTorch。
+# 这里只从 whisper 身上去掉 triton;torch 自己的 triton==3.6.0(仅 Linux)仍然保留。
+exclude-dependencies = [
+    { package = { name = "openai-whisper", version = "20231117" }, dependencies = ["triton"] },
+]
+
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchaudio = { index = "pytorch-cu128" }

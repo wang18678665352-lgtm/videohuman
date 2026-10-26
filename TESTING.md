@@ -78,13 +78,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### 方式 A:轻量安装(学习测试用这个)
 
-在仓库根目录执行。它不安装 torch,也不下载模型。
+在仓库根目录执行。它不安装 torch,也不下载模型。要装哪些包,只写在 `requirements-test.txt` 这一处;本地和后面的 GitHub Actions 用的是同一份清单。
 
 ```bash
 uv venv --python 3.11 .venv
-uv pip install --python .venv/bin/python \
-  pytest pydantic pydantic-settings loguru requests pillow fonttools \
-  typer fastapi httpx python-multipart "numpy>=1.26,<2" openai
+uv pip install --python .venv/bin/python -r requirements-test.txt
 ```
 
 `.venv/` 已经在 `.gitignore` 里,不会被提交。
@@ -99,7 +97,7 @@ uv pip install --python .venv/bin/python pytest httpx
 
 ### 方式 B:完整安装
 
-README 里的 `uv sync` 会安装显卡推理栈(torch、模型相关库)。当前的 `uv.lock` 在 Linux x86_64 上会失败,原因写在文末「这次没测到的部分」。学习测试不需要走这条路。
+README 里的 `uv sync` 会安装显卡推理栈(torch、CUDA 相关库、模型相关库)。学习测试不需要走这条路。这套依赖怎么在 Windows 和 Linux 显卡机器上解得开,见文末「完整安装和 uv.lock」。
 
 ## 运行测试
 
@@ -174,6 +172,51 @@ tests/test_text.py:36: AssertionError
 
 `SKIPPED` 表示这条测试主动没跑,比如机器上没有 ffmpeg。它不是失败。
 
+## GitHub 上的自动测试(CI)
+
+### CI/CD 是什么
+
+CI 是持续集成(Continuous Integration)。意思是:代码一推上去,就有一台干净的机器自动把测试跑一遍,通过了才算这次改动能和其他人的代码合在一起。你不用记得「提交之前先在自己电脑上跑 pytest」——忘了也有人(其实是机器人)帮你跑。
+
+CD 是持续交付(Continuous Delivery)。意思是测试通过之后,再自动把软件装到服务器或打成安装包。**这个仓库现在只做了 CI,没有做 CD。** 工作流跑完测试就停,不会发布视频,也不会把程序部署到任何地方。
+
+### 这个工作流在做什么
+
+文件在 `.github/workflows/test.yml`。GitHub 看见 `.github/workflows/` 下面的 YAML,就会按里面的说明执行。下面按文件从上到下说每一段是干什么的。
+
+| 文件里的内容 | 它在说什么 |
+|---|---|
+| `name: tests` | 这次检查在网页上显示的名字,叫 tests |
+| `on: push` | 有人用 git 把提交推到 GitHub 时就跑 |
+| `on: pull_request` | 有人打开 Pull Request,或往这个 PR 里再推新提交时也跑 |
+| `jobs: pytest` | 一组要按顺序做完的步骤,名字叫 pytest |
+| `runs-on: ubuntu-latest` | 用 GitHub 提供的一台最新 Ubuntu 虚拟机。它没有显卡 |
+| `actions/checkout@v4` | 把你这次提交的代码下载到那台虚拟机里 |
+| `actions/setup-python@v5`,并且 `python-version: "3.11"` | 安装 Python 3.11。项目要求的就是这个版本 |
+| `sudo apt-get install -y ffmpeg` | 安装 ffmpeg。有一条测试会拿它生成一段不到一秒的视频 |
+| `pip install -r requirements-test.txt` | 只安装测试清单里的包。不跑 `uv sync`,因为那个会下载数 GB 的 CUDA 版 torch,而这些测试用不到 |
+| `python -m pytest -v` | 跑 `tests/` 里的全部测试,并把每一条的名字打出来 |
+
+工作流里没有 `secrets`,也不会访问需要登录的网站,也不会下载 `models/` 里的权重。
+
+### 在 GitHub 上哪里看结果
+
+两条路,看的是同一份日志。
+
+1. **仓库的 Actions 标签页。** 打开仓库首页,点顶部的 **Actions**。左边选 **tests**,右边是每一次运行。绿色勾是通过,红叉是失败。点进某一次,再点 **pytest**,就能看到和你在本地终端里一样的 pytest 输出。
+2. **Pull Request 的检查。** 打开一个 PR,往下滚到对话底部的检查列表,或者点 **Checks** 标签。里面会出现 **tests**。它变绿,这次提交的测试就是过的;变红,就点进去看哪一条 `FAILED`。
+
+PR 页面上的检查,就是 Actions 里同一次运行的快捷入口。
+
+### 红了怎么办
+
+1. 点进红色的那一次运行,打开 **pytest** 那一步的日志,滚到带 `FAILED` 的地方。
+2. 读法和上一节「怎么读输出」一样:函数名告诉你在保护什么,`E` 下面左边是实际值、右边是期望值。
+3. 把仓库拉到你自己的电脑,用同样的 Python 3.11 和 `requirements-test.txt` 跑那一条,例如 `.venv/bin/pytest -v tests/test_text.py::函数名`。
+4. 改完代码,在本地把全部测试跑绿,再 push。GitHub 会自动再跑一遍。新的一次变绿,PR 上的检查也会跟着变绿。
+
+常见的红,和显卡无关:断言写错、少提交了一个文件、`requirements-test.txt` 里漏了一个 import 需要的包、或者测试调用了本机没有的 ffmpeg。日志最后几十行通常就够定位。
+
 ## 自己加一条测试
 
 用「标题去掉首尾空格」做例子。函数在 `vh_core/publishers/base.py`,叫 `truncate_title`。
@@ -239,7 +282,23 @@ def test_title_strips_spaces_before_counting() -> None:
 | 没跑的东西 | 原因 |
 |---|---|
 | 配音、数字人、语音识别的真实推理 | 需要 NVIDIA 显卡和 `download_weights.py` 下载的模型。这台机器没有显卡,测试也不该依赖它们 |
-| `uv sync` 完整安装 | 在 Linux x86_64 上立刻失败:`uv.lock` 给这块平台选了 `torch==2.0.1`(cu128 源),而这个版本只有一块 aarch64 的安装包。同一条规则也覆盖 Windows。所以「按 README 把整个项目装起来再 import torch」这次没有做成 |
+| 把 torch 真正装进环境并 import | 求解已经能通过(见下一节),但 CUDA 版 torch 有数 GB,这台检查机器也没有显卡。没有下载这些轮子,也没有跑配音或对口型 |
 | 真的下载抖音、调用大模型、上传 B 站或抖音 | 需要登录态和网络,而且会动到真实账号。测试只检查链接怎么解析、密钥为空时怎么跳过、登录文件缺了怎么报错 |
 | `web/` 前端 | Vue 页面没有现成的测试脚本,业务逻辑也不在前端。这次没有为它另装一套 JavaScript 测试工具 |
 | `third_party/` 里上游项目自带的测试 | 那是 MuseTalk、CosyVoice、IndexTTS 自己的套件,很多要模型和显卡,不属于 videohuman 这层 |
+
+## 完整安装和 uv.lock
+
+`uv sync` 会按照 `uv.lock` 把 `pyproject.toml` 里的全部依赖装进 `.venv`,包括 CUDA 12.8 的 torch。项目要照顾的机器是 **带 NVIDIA 显卡的 Linux(x86_64)和 Windows**。
+
+以前在 Linux 上重新生成这把锁时,会选中 `torch==2.0.1`。cu128 索引上的这个版本只有一块 aarch64 轮子,Linux x86_64 和 Windows 都装不上,CUDA 相关的包也会一起丢掉。原因有两层:
+
+1. `openai-whisper==20231117` 的 `setup.py` 会看「正在跑 `uv lock` 的那台机器」。如果它是 Linux x86_64,就把 `triton>=2,<3` 写进依赖,而且不附带「只在 Linux 上需要」这种条件。cu128 的 torch 2.7 及以上在 Linux 上要的是 triton 3.x。两个条件碰在一起,新的 torch 全部被排除。
+2. 求解器退回到索引里那个 `torch==2.0.1`。它不依赖 triton 3,所以看起来「能解开」,但它的轮子其实是 aarch64 的。uv 还把 Linux x86_64 和 Windows 算成同一个分支,于是这两块平台都继承了这个装不上的版本。
+
+`pyproject.toml` 里现在做了两处对应的修改:
+
+- `exclude-dependencies` 只从 whisper 身上去掉 triton。torch 自己在 Linux 上仍然依赖 `triton==3.6.0`,CUDA 包(nvidia-cublas、cudnn 等)还在锁里。whisper 的 triton 只用于可选的 CUDA 时间戳加速,内核启动失败时会退回普通 PyTorch。
+- `required-environments` 写明 Linux x86_64 和 Windows 64 位必须有轮子。再退回只有 aarch64 轮子的 torch 2.0.1 时,`uv lock` 会直接失败,而不是写出一把装不上的锁。
+
+在 Linux x86_64 上用 `uv lock` 重新求解、再用 `uv sync --dry-run` 检查,结果是 `torch==2.11.0+cu128`,并且带有 Linux x86_64 和 Windows 的轮子。真正把数 GB 的轮子下载下来,要在有显卡的机器上执行 `uv sync`。
