@@ -1,0 +1,42 @@
+# 这是 GitHub Actions 的工作流。
+# 每次往仓库 push,或者打开、更新一个 Pull Request,GitHub 都会拿一台全新的
+# Ubuntu 机器,按下面的步骤自动跑 pytest。
+# 这台机器没有显卡,工作流也不读取任何密钥(Secrets),也不下载模型权重。
+
+name: tests
+
+# 什么时候跑。push:有人推送提交。pull_request:有人开 PR 或往 PR 里推新提交。
+on:
+  push:
+  pull_request:
+
+# 一个 job 就是一组在同一台机器上按顺序执行的步骤。
+jobs:
+  pytest:
+    # ubuntu-latest 是 GitHub 提供的公共 Linux 虚拟机,自带网络,没有 NVIDIA 显卡。
+    runs-on: ubuntu-latest
+    steps:
+      # 把当前这次提交的代码下载到虚拟机里。v4 是官方 checkout 动作的版本号。
+      - name: 取出代码
+        uses: actions/checkout@v4
+
+      # 项目要求 Python 3.11。虚拟机自带的 python 不一定是这个版本,所以单独装。
+      - name: 安装 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 有一条测试会调用系统里的 ffmpeg,生成一段不到一秒的视频。
+      # 先装上,避免那条测试因为找不到程序而失败。
+      - name: 安装 ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      # 只装 requirements-test.txt 里列出的包。
+      # 不运行 uv sync:完整环境要下载数 GB 的 CUDA 版 torch,测试用不到。
+      - name: 安装测试需要的 Python 包
+        run: python -m pip install -r requirements-test.txt
+
+      # -v 会把每一条测试的名字打出来,方便在网页日志里对号入座。
+      # 有任何一条失败,这一步的退出码就不是 0,整个检查会变成红色。
+      - name: 跑测试
+        run: python -m pytest -v

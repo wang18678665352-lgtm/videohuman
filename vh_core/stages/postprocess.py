@@ -32,8 +32,10 @@ AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
 FONT_EXTS = {".ttf", ".otf", ".ttc"}
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 
-# 句末标点集合:字幕分句后要把句尾的标点串(如 "。。。")整段剥掉
-_TRAILING_PUNCT = ",。!?!;;"
+# 句末标点:英文半角 + 中文全角。与 vh_core.media 保持同一套,
+# 否则后期字幕和 media.process_video 会把同一篇文案切成不同的句子。
+_TRAILING_PUNCT = ",，。！？!?；;"
+_SENTENCE_SPLIT = re.compile(f"(?<=[{re.escape(_TRAILING_PUNCT)}])")
 
 
 def _strip_trailing_punct(seg: str) -> str:
@@ -71,7 +73,7 @@ def split_subtitle_lines(text: str, max_len: int = 15) -> list[str]:
     """把文案切成适合单行显示的短句:先按行,再按标点,超长再硬切。"""
     chunks: list[str] = []
     for raw in text.splitlines():
-        for seg in re.split(r"(?<=[,。!?!;;])", raw.strip()):
+        for seg in _SENTENCE_SPLIT.split(raw.strip()):
             seg = _strip_trailing_punct(seg)
             if not seg:
                 continue
@@ -175,6 +177,13 @@ def _align_lines_to_asr(
 
     if not lines or not words or not timestamps:
         return []
+    if len(words) != len(timestamps):
+        # 词和时间戳条数不一致时按较短一侧截断。
+        # 否则多出来的字会对到不存在的时间,直接 IndexError,整段字幕只能回退。
+        n = min(len(words), len(timestamps))
+        logger.warning(f"ASR 词数({len(words)})与时间戳数({len(timestamps)})不一致,按较短一侧对齐")
+        words = list(words)[:n]
+        timestamps = list(timestamps)[:n]
     asr_full = "".join(words)
     # 每个 ASR 字符的 (start, end),词内线性插值
     c_start: list[float] = []

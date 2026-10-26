@@ -16,14 +16,16 @@ from loguru import logger
 from ..pipeline import Stage, StageContext
 from ..providers import get_provider
 
-# 参考音文本只保留中英文/数字/常用标点,滤掉 SenseVoice 情感标记等残留(emoji 等)
+# 参考音文本只保留中英文/数字/常用标点,滤掉 SenseVoice 情感标记等残留(emoji 等)。
+# 标记形如 <|NEUTRAL|>。只删括号会把 NEUTRAL 这几个字母留在参考文本里。
+_SENSEVOICE_TAG = re.compile(r"<\|.*?\|>")
 _REF_TEXT_DROP = re.compile(
     "[^\\w\\s,.!?;:—·…-、。\\uff0c\\uff01\\uff1f\\uff1a\\uff1b\\u3010\\u3011\\u300a\\u300b\\uff08\\uff09]+"
 )
 
 
 def _clean_ref_text(text: str) -> str:
-    return _REF_TEXT_DROP.sub("", text).strip()
+    return _REF_TEXT_DROP.sub("", _SENSEVOICE_TAG.sub("", text)).strip()
 
 
 class TTSStage(Stage):

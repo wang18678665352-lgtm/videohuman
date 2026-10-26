@@ -1,0 +1,17 @@
+# 测试专用依赖。本地「轻量安装」和 GitHub Actions 都只装这一份。
+# 这里没有 torch,没有模型,也没有需要密钥的服务。
+# 版本尽量放开;numpy 必须 <2,和 pyproject.toml 里的约束一致。
+
+pytest
+pydantic
+pydantic-settings
+loguru
+requests
+pillow
+fonttools
+typer
+fastapi
+httpx
+python-multipart
+numpy>=1.26,<2
+openai
