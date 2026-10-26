@@ -683,8 +683,10 @@ def add_ai_watermark(
 
 # ------------------------------------------------------------------ 字幕
 
-# 句末标点集合:字幕分句后要把句尾的标点串(如 "。。。")整段剥掉
-_TRAILING_PUNCT = ",。!?!;;"
+# 句末标点:英文半角 + 中文全角。口播文案几乎都用「，。！？」断句;
+# 只认半角逗号时整句会粘在一起,句尾的「，」也剥不掉。
+_TRAILING_PUNCT = ",，。！？!?；;"
+_SENTENCE_SPLIT = re.compile(f"(?<=[{re.escape(_TRAILING_PUNCT)}])")
 
 
 def _strip_trailing_punct(seg: str) -> str:
@@ -705,7 +707,7 @@ def split_subtitle_lines(text: str, max_len: int = 15) -> list[str]:
     """把文案切成适合单行显示的短句:先按行,再按标点,超长再硬切。"""
     chunks: list[str] = []
     for raw in text.splitlines():
-        for seg in re.split(r"(?<=[,。!?!;;])", raw.strip()):
+        for seg in _SENTENCE_SPLIT.split(raw.strip()):
             seg = _strip_trailing_punct(seg)
             if not seg:
                 continue

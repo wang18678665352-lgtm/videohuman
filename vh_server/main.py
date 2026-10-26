@@ -97,6 +97,33 @@ def _load_spec(job_id: str) -> dict[str, Any]:
     return {}
 
 
+# 与创建任务同一条规则。\w 含中文等文字,再允许连字符。
+_JOB_ID_RE = re.compile(r"[\w\-]+")
+
+
+def _checked_job_dir(job_id: str) -> Path:
+    """只接受 workspace 下面的一层任务目录,拒绝 ``..`` 逃出工作区。"""
+    if not _JOB_ID_RE.fullmatch(job_id):
+        raise HTTPException(404, f"任务不存在: {job_id}")
+    root = settings.workspace.resolve()
+    job_dir = (root / job_id).resolve()
+    if job_dir == root or not job_dir.is_relative_to(root):
+        raise HTTPException(404, f"任务不存在: {job_id}")
+    return job_dir
+
+
+def _file_inside(base: Path, target: Path) -> Path | None:
+    """target 解析后必须是 base 里面的文件,否则返回 None。
+
+    不能用字符串 startswith:目录名 ``demo`` 会误匹配旁边的 ``demo-secret``。
+    """
+    base_r = base.resolve()
+    target_r = target.resolve()
+    if target_r == base_r or not target_r.is_file() or not target_r.is_relative_to(base_r):
+        return None
+    return target_r
+
+
 # ---------------------------------------------------------------- 请求模型
 
 
@@ -203,9 +230,8 @@ async def upload_asset(file: UploadFile, kind: str = Query(..., pattern="^(audio
 @app.get("/api/asset-file")
 def asset_file(path: str = Query(...)) -> FileResponse:
     """assets/ 内文件预览(音频试听等),限制在素材目录内。"""
-    base = settings.assets.resolve()
-    target = (PROJECT_ROOT / path).resolve()
-    if not str(target).startswith(str(base)) or not target.is_file():
+    target = _file_inside(settings.assets, PROJECT_ROOT / path)
+    if target is None:
         raise HTTPException(404, "文件不存在或路径非法")
     return FileResponse(target)
 
@@ -216,9 +242,8 @@ def asset_ref_text(path: str = Query(...)) -> dict[str, Any]:
     from vh_core.providers import get_provider
     from vh_core.stages.tts import _clean_ref_text
 
-    base = settings.assets.resolve()
-    target = (PROJECT_ROOT / path).resolve()
-    if not str(target).startswith(str(base)) or not target.is_file():
+    target = _file_inside(settings.assets, PROJECT_ROOT / path)
+    if target is None:
         raise HTTPException(404, "文件不存在或路径非法")
     sidecar = target.with_suffix(".txt")
     if sidecar.exists():
@@ -285,7 +310,7 @@ def create_job(body: JobCreate) -> dict[str, Any]:
     if not (has_audio or has_text or has_share):
         raise HTTPException(400, "必须提供 audio(直接音频)、text(文案直给) 或 share_url(抖音克隆) 其中之一")
     job_id = body.job_id or f"job-{datetime.now():%Y%m%d-%H%M%S}"
-    if not re.fullmatch(r"[\w\-]+", job_id):
+    if not _JOB_ID_RE.fullmatch(job_id):
         raise HTTPException(400, "job_id 只允许字母数字下划线连字符")
     params = body.model_dump(exclude_none=True, exclude={"job_id"})
     if body.publish_tags is not None:
@@ -298,7 +323,7 @@ def create_job(body: JobCreate) -> dict[str, Any]:
 
 @app.get("/api/jobs/{job_id}")
 def job_detail(job_id: str) -> dict[str, Any]:
-    job_dir = settings.workspace / job_id
+    job_dir = _checked_job_dir(job_id)
     if not job_dir.is_dir():
         raise HTTPException(404, f"任务不存在: {job_id}")
     summary = _job_summary(job_dir)
@@ -311,7 +336,7 @@ def job_detail(job_id: str) -> dict[str, Any]:
 
 @app.post("/api/jobs/{job_id}/run")
 def rerun_job(job_id: str, body: JobRun) -> dict[str, Any]:
-    job_dir = settings.workspace / job_id
+    job_dir = _checked_job_dir(job_id)
     if not job_dir.is_dir():
         raise HTTPException(404, f"任务不存在: {job_id}")
     if body.only and body.only not in STAGE_NAMES:
@@ -327,9 +352,11 @@ def rerun_job(job_id: str, body: JobRun) -> dict[str, Any]:
 
 @app.get("/api/jobs/{job_id}/file")
 def job_file(job_id: str, path: str = Query(...)) -> FileResponse:
-    job_dir = (settings.workspace / job_id).resolve()
-    target = (job_dir / path).resolve()
-    if not str(target).startswith(str(job_dir)) or not target.is_file():
+    job_dir = _checked_job_dir(job_id)
+    if not job_dir.is_dir():
+        raise HTTPException(404, f"任务不存在: {job_id}")
+    target = _file_inside(job_dir, job_dir / path)
+    if target is None:
         raise HTTPException(404, "文件不存在或路径非法")
     return FileResponse(target)
 
@@ -375,7 +402,7 @@ def spa(full_path: str) -> FileResponse:
     """SPA 托管:静态文件直出,其余路径回退 index.html(history 路由前端消化)。"""
     if not _dist.is_dir():
         raise HTTPException(404, "前端未构建:请先 cd web && npm run build")
-    target = (_dist / full_path).resolve()
-    if full_path and target.is_file() and str(target).startswith(str(_dist.resolve())):
+    target = _file_inside(_dist, _dist / full_path) if full_path else None
+    if target is not None:
         return FileResponse(target)
     return FileResponse(_dist / "index.html")

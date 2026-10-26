@@ -71,6 +71,12 @@ openai-whisper = ["setuptools<81"]
 [project.scripts]
 vh = "vh_cli.main:app"
 
+# 测试怎么跑见 TESTING.md。这里只告诉 pytest 去哪找测试。
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# 未 pip install -e 时也能 import vh_core
+pythonpath = ["."]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

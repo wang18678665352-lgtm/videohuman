@@ -82,13 +82,17 @@ class Pipeline:
         job_dir = self._job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
         manifest = self.load_manifest(job_id) if resume else JobManifest(job_id=job_id)
+        # 已完成的环节先记名字,全部成功后再把返回值标成 skipped。
+        # 不能在循环里改 manifest 上的 status:后面的环节一旦失败会整份落盘,
+        # 已成功的环节会被写成 skipped,下次续跑又把它们重做一遍。
+        skipped_done: list[str] = []
 
         for stage in self.stages:
             if only is not None and stage.name not in only:
                 continue
             if manifest.is_done(stage.name):
                 logger.info(f"[{job_id}] stage '{stage.name}' 已完成，跳过(断点续跑)")
-                manifest.stages[stage.name].status = StageStatus.SKIPPED
+                skipped_done.append(stage.name)
                 continue
 
             stage_dir = job_dir / stage.name
@@ -132,6 +136,8 @@ class Pipeline:
             self.save_manifest(manifest)
             logger.info(f"[{job_id}] stage '{stage.name}' 完成: {result.outputs}")
 
+        for name in skipped_done:
+            manifest.stages[name].status = StageStatus.SKIPPED
         return manifest
 
 

@@ -65,6 +65,8 @@ uv run vh batch --spec examples/batch.toml
 uv run vh serve --port 8100   # 或双击 start_web.bat
 ```
 
+想学怎么测试、以及不装显卡也能跑的检查命令,见 [TESTING.md](TESTING.md)。
+
 LLM 改写需要配置 API Key(默认 DeepSeek 兼容接口):设置环境变量
 `VH_LLM_API_KEY`,或在 Web 工作台"素材与设置"页填写。不配置时 rewrite 环节直通原文。
 
