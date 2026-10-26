@@ -13,7 +13,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from ..pipeline import Stage, StageContext
+from ..pipeline import Param, Port, Stage, StageContext
 from ..providers import get_provider
 
 # 参考音文本只保留中英文/数字/常用标点,滤掉 SenseVoice 情感标记等残留(emoji 等)
@@ -28,6 +28,16 @@ def _clean_ref_text(text: str) -> str:
 
 class TTSStage(Stage):
     name = "tts"
+    title = "语音合成"
+    category = "音频"
+    description = "按参考音色合成配音(CosyVoice3 / IndexTTS-2);参考音可连线传入,用于克隆原声"
+    inputs = {"text": Port("text", "文案", required=True), "ref_audio": Port("audio", "参考音色")}
+    outputs = {"speech": Port("audio", "配音")}
+    params = (
+        Param("tts_engine", "TTS 引擎", "select", "cosyvoice3", ("cosyvoice3", "indextts2")),
+        Param("ref_audio", "参考音频", "asset_audio", help="未连线参考音色时使用"),
+        Param("ref_text", "参考音文本", "text", help="留空自动识别"),
+    )
 
     def enabled(self, ctx: StageContext) -> bool:
         """如果提供了直接驱动音频(对口型直通模式)，跳过 TTS 阶段。"""
@@ -55,8 +65,8 @@ class TTSStage(Stage):
         return ""
 
     def run(self, ctx: StageContext) -> dict[str, Path]:
-        text_file = ctx.job_dir / "rewrite" / "text.txt"
-        if text_file.exists():
+        text_file = ctx.input("text", "rewrite/text.txt")
+        if text_file is not None:
             text = text_file.read_text(encoding="utf-8").strip()
         else:
             text = (ctx.params.get("text") or "").strip()
@@ -66,8 +76,11 @@ class TTSStage(Stage):
         tts_params = dict(ctx.params.get("tts", {}))
         engine = ctx.params.get("tts_engine")
         ref_audio: Path | None = None
-        if ctx.params.get("ref_audio"):
+        if "ref_audio" in ctx.inputs:
+            ref_audio = ctx.inputs["ref_audio"]
+        elif ctx.params.get("ref_audio"):
             ref_audio = ctx.settings.abs_path(Path(ctx.params["ref_audio"]))
+        if ref_audio is not None:
             tts_params["ref_audio"] = ref_audio
         ref_text = self._resolve_ref_text(ctx, ref_audio)
         if ref_text:

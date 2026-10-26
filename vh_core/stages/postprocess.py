@@ -24,7 +24,7 @@ from loguru import logger
 
 from ..config import Settings
 from ..ffmpeg_utils import get_ffmpeg, run_ffmpeg
-from ..pipeline import Stage, StageContext
+from ..pipeline import Param, Port, Stage, StageContext
 from ..postproc import (
     add_ai_watermark,
     add_multicolor_text,
@@ -90,11 +90,30 @@ def _ass_ts(t: float) -> str:
     return f"{h}:{m:02d}:{s:02d}.{cs // 10:02d}"
 
 
+def _is_latin(text: str) -> bool:
+    """拉丁字母占多数(英文等)时按单词折行,而不是按字符硬切。"""
+    letters = [c for c in text if not c.isspace()]
+    return bool(letters) and sum(c.isascii() and c.isalpha() for c in letters) > len(letters) / 2
+
+
 def split_subtitle_lines(text: str, max_len: int = 15) -> list[str]:
-    """把文案切成适合单行显示的短句:先按行,再按标点,超长再硬切。"""
+    """把文案切成适合单行显示的短句:先按行,再按标点,超长再切。
+
+    中文按字符硬切(max_len 字);英文等拉丁文字按单词折行(约 max_len*2.5 个字符)。
+    """
+    import textwrap
+
     chunks: list[str] = []
     for raw in text.splitlines():
-        for seg in re.split(r"(?<=[,。!?!;;])", raw.strip()):
+        raw = raw.strip()
+        if _is_latin(raw):
+            limit = int(max_len * 2.5)
+            for seg in re.split(r"(?<=[.?!;,])\s+", raw):
+                seg = seg.strip().rstrip(".,;")
+                if seg:
+                    chunks.extend(textwrap.wrap(seg, limit, break_long_words=True))
+            continue
+        for seg in re.split(r"(?<=[,。!?!;;])", raw):
             seg = _strip_trailing_punct(seg)
             if not seg:
                 continue
@@ -189,6 +208,10 @@ def _split_cover_text(text: str) -> tuple[str, str]:
     return text.strip(), ""
 
 
+def _norm_align(text: str) -> str:
+    return re.sub(r"\s+", "", text).lower()
+
+
 def _align_lines_to_asr(
     lines: list[str], words: list[str], timestamps: list[list[float]], duration: float
 ) -> list[dict]:
@@ -198,6 +221,8 @@ def _align_lines_to_asr(
 
     if not lines or not words or not timestamps:
         return []
+    # 对齐在"去空白 + 小写"的文本上做:英文 ASR 词与原文的空格/大小写不一致不影响匹配
+    words = [_norm_align(w) for w in words]
     asr_full = "".join(words)
     # 每个 ASR 字符的 (start, end),词内线性插值
     c_start: list[float] = []
@@ -209,7 +234,8 @@ def _align_lines_to_asr(
             c_end.append((ws + (we - ws) * (i + 1) / n) / 1000)
 
     # 原文(去标点后的拼接)字符位置 → ASR 字符位置
-    orig_full = "".join(lines)
+    norm_lines = [_norm_align(line) for line in lines]
+    orig_full = "".join(norm_lines)
     matcher = difflib.SequenceMatcher(None, orig_full, asr_full, autojunk=False)
     orig_to_asr: dict[int, int] = {}
     for block in matcher.get_matching_blocks():
@@ -221,8 +247,8 @@ def _align_lines_to_asr(
 
     segments: list[dict] = []
     offset = 0
-    for line in lines:
-        span = range(offset, offset + len(line))
+    for line, norm in zip(lines, norm_lines):
+        span = range(offset, offset + len(norm))
         times = [(c_start[orig_to_asr[j]], c_end[orig_to_asr[j]]) for j in span if j in orig_to_asr]
         if times:
             segments.append(
@@ -230,7 +256,7 @@ def _align_lines_to_asr(
             )
         else:
             segments.append({"text": line, "start": None, "end": None})
-        offset += len(line)
+        offset += len(norm)
 
     # 未匹配的句:在相邻句之间插值
     for i, seg in enumerate(segments):
@@ -251,12 +277,38 @@ def _align_lines_to_asr(
 
 class PostprocessStage(Stage):
     name = "postprocess"
+    title = "后期包装"
+    category = "视频"
+    description = "静音切除、背景图、字幕(ASR 对齐)、BGM、水印、AI 生成标识、封面"
+    inputs = {
+        "video": Port("video", "视频", required=True),
+        "text": Port("text", "字幕文案"),
+        "speech": Port("audio", "人声(字幕对齐用)"),
+    }
+    outputs = {
+        "final": Port("video", "成片"),
+        "cover": Port("image", "封面"),
+        "subtitle": Port("subtitle", "字幕文件"),
+    }
+    params = (
+        Param("postprocess.silence_cut", "静音切除", "bool", True),
+        Param("postprocess.subtitle", "字幕烧录", "bool", True),
+        Param("postprocess.subtitle_max_len", "字幕每行字数", "integer", 15, help="英文等拉丁文字按 2.5 倍字符数折行"),
+        Param("postprocess.bgm", "BGM 混音", "bool", True),
+        Param("bgm_path", "BGM 文件", "asset_audio", help="留空自动取 assets/bgm 第一首"),
+        Param("postprocess.bgm_volume", "BGM 音量", "number", 0.15),
+        Param("postprocess.bg_image", "背景图合成", "bool", False),
+        Param("postprocess.watermark_text", "文字水印", "string"),
+        Param("postprocess.ai_label", "AI 生成角标", "bool", True, help="关闭需自行确保合规"),
+        Param("postprocess.cover", "生成封面", "bool", True),
+        Param("cover_text", "封面文字", "string", help="逗号分隔两行"),
+    )
 
     def run(self, ctx: StageContext) -> dict[str, Path]:
         s = ctx.settings
-        src = ctx.job_dir / "avatar" / "avatar.mp4"
-        if not src.exists():
-            raise FileNotFoundError("postprocess 需要 avatar 产物 avatar.mp4")
+        src = ctx.input("video", "avatar/avatar.mp4")
+        if src is None or not src.exists():
+            raise FileNotFoundError("postprocess 需要输入视频(avatar 产物 avatar.mp4)")
 
         pp = dict(ctx.params.get("postprocess", {}))
         cur = ctx.stage_dir / "step0_src.mp4"
@@ -470,15 +522,15 @@ class PostprocessStage(Stage):
     def _subtitle_segments(self, ctx: StageContext, cur: Path, duration: float, silence_applied: bool) -> list[dict]:
         """字幕分句 [{text, start, end}]: 文本来自原文(rewrite 产物、params.text、直接音频同名 .txt 或 ASR 转写)；
         tts/speech.wav 或 params.audio 存在时用 ASR 词级时间轴对齐，任何异常回退均分时长。"""
-        text_file = ctx.job_dir / "rewrite" / "text.txt"
+        text_file = ctx.input("text", "rewrite/text.txt")
         text = (
             text_file.read_text(encoding="utf-8").strip()
-            if text_file.exists()
+            if text_file is not None
             else (ctx.params.get("text") or "").strip()
         )
 
-        speech: Path | None = None
-        if ctx.params.get("audio"):
+        speech: Path | None = ctx.inputs.get("speech")
+        if speech is None and ctx.params.get("audio"):
             audio_path = Path(ctx.params["audio"])
             if not audio_path.is_absolute():
                 audio_path = ctx.settings.abs_path(audio_path)
@@ -490,9 +542,7 @@ class PostprocessStage(Stage):
                         text = sidecar.read_text(encoding="utf-8").strip()
                         logger.info(f"直接音频取同名字幕文本: {sidecar.name}")
         if speech is None:
-            tts_speech = ctx.job_dir / "tts" / "speech.wav"
-            if tts_speech.exists():
-                speech = tts_speech
+            speech = ctx.input("speech", "tts/speech.wav")
 
         # 若未提供文案但有驱动音频，尝试通过 ASR 自动转写字幕文本
         if not text and speech is not None and speech.exists():
@@ -506,7 +556,8 @@ class PostprocessStage(Stage):
             except Exception as e:
                 logger.warning(f"直接音频 ASR 转写字幕失败: {e}")
 
-        lines = split_subtitle_lines(text) if text else []
+        max_len = int(dict(ctx.params.get("postprocess", {})).get("subtitle_max_len", 15))
+        lines = split_subtitle_lines(text, max_len=max_len) if text else []
         if lines and speech is not None and speech.exists():
             try:
                 from ..providers import get_provider

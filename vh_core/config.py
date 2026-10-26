@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     cors_origins: str = ""  # 逗号分隔的跨域白名单;同源部署留空即可
     max_upload_mb: int = 2048  # 单个素材上传上限
     log_dir: Path = Path("logs")  # 服务端日志目录(按天滚动)
+    workflows_dir: Path = Path("configs/workflows")  # 用户自定义工作流(JSON)
 
     # TTS 参考音频(默认 CosyVoice 仓库自带示例)
     tts_ref_audio: str = ""

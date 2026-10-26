@@ -17,7 +17,7 @@ from typing import Any
 
 from loguru import logger
 
-from ..pipeline import Stage, StageContext
+from ..pipeline import Param, Port, Stage, StageContext
 from ..publishers import BilibiliPublisher, DouyinPublisher, PublisherBase
 
 PUBLISHERS: dict[str, type] = {
@@ -27,9 +27,9 @@ PUBLISHERS: dict[str, type] = {
 
 
 def _default_title(ctx: StageContext) -> str:
-    """缺省标题:rewrite/text.txt 首句(按标点/换行切),兜底 job_id。"""
-    text_file = ctx.job_dir / "rewrite" / "text.txt"
-    if text_file.exists():
+    """缺省标题:文案首句(按标点/换行切),兜底 job_id。"""
+    text_file = ctx.input("text", "rewrite/text.txt")
+    if text_file is not None:
         text = text_file.read_text(encoding="utf-8").strip()
         # 按中英文标点切首句:\w 匹配中日韩文字与字母数字,遇首个标点/换行即断
         first = re.split(r"[^\w\s]", text, maxsplit=1)[0].strip()
@@ -71,16 +71,30 @@ def _parse_publish_date(raw: Any) -> datetime | None:
 
 class PublishStage(Stage):
     name = "publish"
+    title = "多平台发布"
+    category = "输出"
+    description = "发布到抖音 / B 站(需先登录);可定时发布"
+    inputs = {
+        "video": Port("video", "成片", required=True),
+        "cover": Port("image", "封面"),
+        "text": Port("text", "文案(缺省标题取首句)"),
+    }
+    outputs = {"result": Port("json", "发布结果")}
+    params = (
+        Param("publish_platforms", "发布平台", "string", "", help="逗号分隔:douyin,bilibili;留空不发布"),
+        Param("publish_title", "标题", "string", help="留空取文案首句"),
+        Param("publish_tags", "标签", "string", help="逗号分隔"),
+        Param("publish_date", "定时发布", "string", help="ISO 时间,如 2026-08-08T20:00:00"),
+    )
 
     def enabled(self, ctx: StageContext) -> bool:
         return bool(ctx.params.get("publish_platforms"))
 
     def run(self, ctx: StageContext) -> dict[str, Path]:
-        video = ctx.job_dir / "postprocess" / "final.mp4"
-        if not video.exists():
-            raise FileNotFoundError(f"publish 需要 postprocess 产物 final.mp4(未找到: {video}),请先跑 postprocess")
-        cover = ctx.job_dir / "postprocess" / "cover.png"
-        cover = cover if cover.exists() else None
+        video = ctx.input("video", "postprocess/final.mp4")
+        if video is None or not video.exists():
+            raise FileNotFoundError("publish 需要成片视频(postprocess 产物 final.mp4),请先跑 postprocess")
+        cover = ctx.input("cover", "postprocess/cover.png")
 
         title = (ctx.params.get("publish_title") or "").strip() or _default_title(ctx)
         tags = _parse_tags(ctx.params.get("publish_tags"))

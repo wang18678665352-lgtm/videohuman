@@ -272,3 +272,90 @@ def test_recover_after_restart(settings: Settings, runner: FakeRunner) -> None:
         assert "重启" in c.get("/api/jobs/was-running").json()["error"]
     # 按提交顺序恢复
     assert [x["job_id"] for x in runner.calls] == ["q1", "q2"]
+
+
+# ---------------------------------------------------------------- 工作流 API
+
+
+def test_steps_and_workflow_listing(client: TestClient) -> None:
+    steps = {s["type"]: s for s in client.get("/api/steps").json()}
+    assert {"input_text", "broll", "translate", "postprocess"} <= set(steps)
+    assert steps["tts"]["inputs"][0] == {"name": "text", "kind": "text", "title": "文案", "required": True}
+    flows = {w["id"]: w for w in client.get("/api/workflows").json()}
+    assert flows["broll_voiceover"]["builtin"] is True
+    detail = client.get("/api/workflows/video_dub").json()
+    assert detail["builtin"] is True and detail["nodes"]
+    assert client.get("/api/workflows/nope").status_code == 404
+
+
+def test_workflow_validate_save_delete(client: TestClient, settings: Settings) -> None:
+    settings.workflows_dir = settings.workspace.parent / "wfs"
+    spec = client.get("/api/workflows/broll_voiceover").json()
+    spec.pop("builtin")
+    bad = {**spec, "edges": spec["edges"][1:]}
+    r = client.post("/api/workflows/validate", json=bad).json()
+    assert r["ok"] is False and any("未连线" in e for e in r["errors"])
+
+    mine = {**spec, "id": "mine", "title": "我的流程"}
+    assert client.put("/api/workflows/mine", json=mine).status_code == 200
+    assert client.put("/api/workflows/other", json=mine).status_code == 400  # id 不一致
+    assert client.put("/api/workflows/broll_voiceover", json=spec).status_code == 400  # 内置不可覆盖
+    assert client.put("/api/workflows/mine", json={**mine, "edges": []}).status_code == 400  # 无效不落盘
+    assert client.get("/api/workflows/mine").json()["builtin"] is False
+    assert client.delete("/api/workflows/broll_voiceover").status_code == 400
+    assert client.delete("/api/workflows/mine").status_code == 200
+    assert client.get("/api/workflows/mine").status_code == 404
+
+
+def test_create_workflow_job(client: TestClient, runner: FakeRunner, settings: Settings) -> None:
+    body = {"job_id": "wf1", "workflow": "broll_voiceover", "node_params": {"script": {"text": "你好"}}}
+    r = client.post("/api/jobs", json=body)
+    assert r.status_code == 200, r.text
+    _wait(lambda: _status(client, "wf1") == "done")
+    call = runner.calls[-1]
+    assert call["params"]["workflow"] == "broll_voiceover"
+    assert call["params"]["node_params"] == {"script": {"text": "你好"}}
+    assert (settings.workspace / "wf1" / "workflow.json").is_file()
+    detail = client.get("/api/jobs/wf1").json()
+    assert detail["stage_order"] == ["script", "polish", "voice", "montage", "post", "publish"]
+    assert detail["workflow"]["id"] == "broll_voiceover"
+
+    # 单节点重跑 + 节点参数覆盖(合并,不丢原参数)
+    r = client.post(
+        "/api/jobs/wf1/run", json={"only": "montage", "params": {"node_params": {"montage": {"order": "random"}}}}
+    )
+    assert r.status_code == 200, r.text
+    _wait(lambda: len(runner.calls) == 2 and _status(client, "wf1") == "done")
+    assert runner.calls[-1]["only"] == ["montage"]
+    assert runner.calls[-1]["params"]["node_params"] == {"script": {"text": "你好"}, "montage": {"order": "random"}}
+    assert client.post("/api/jobs/wf1/run", json={"only": "tts"}).status_code == 400  # 节点 id 是 voice
+
+
+def test_create_workflow_job_validation(client: TestClient) -> None:
+    r = client.post("/api/jobs", json={"workflow": "broll_voiceover"})
+    assert r.status_code == 400 and "口播文案" in r.json()["detail"]
+    r = client.post("/api/jobs", json={"workflow": "nope"})
+    assert r.status_code == 404
+    r = client.post(
+        "/api/jobs",
+        json={"workflow": "video_dub", "node_params": {"source": {"path": "/etc/passwd"}}},
+    )
+    assert r.status_code == 400 and "source" in r.json()["detail"]
+    r = client.post(
+        "/api/jobs",
+        json={"workflow": "broll_voiceover", "node_params": {"script": {"text": "x"}, "montage": {"media_dir": "/"}}},
+    )
+    assert r.status_code == 400
+
+
+def test_broll_upload_and_dirs(client: TestClient, settings: Settings) -> None:
+    r = client.post("/api/assets?kind=broll&consent=true", files={"file": ("shot.png", b"\x89PNG", "image/png")})
+    assert r.status_code == 200, r.text
+    assert (settings.assets / "broll" / "shot.png").exists()
+    listing = client.get("/api/assets").json()
+    assert any(p.endswith("broll/shot.png") for p in listing["brolls"])
+    assert any(d.endswith("broll") for d in listing["dirs"])
+    assert (
+        client.post("/api/assets?kind=broll&consent=true", files={"file": ("x.txt", b"x", "text/plain")}).status_code
+        == 400
+    )

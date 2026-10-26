@@ -22,6 +22,7 @@ from vh_core.api import load_batch, load_spec, run_batch, run_job
 from vh_core.config import load_settings
 from vh_core.models import STAGE_NAMES, JobSpec
 from vh_core.pipeline import PipelineStageError
+from vh_core.workflow import WorkflowError
 
 app = typer.Typer(help="videohuman — 数字人口播视频流水线(纯本地)", no_args_is_help=True)
 
@@ -46,6 +47,25 @@ def main(
     ),
 ) -> None:
     """videohuman — 数字人口播视频流水线(纯本地)。"""
+
+
+def _parse_value(raw: str) -> Any:
+    """--set 的值:能按 JSON 解析的(数字/布尔/列表)按 JSON,否则当字符串。"""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+
+
+def _merge_sets(node_params: dict[str, dict[str, Any]], sets: list[str]) -> dict[str, dict[str, Any]]:
+    for item in sets:
+        key, sep, raw = item.partition("=")
+        node, dot, param = key.partition(".")
+        if not sep or not dot or not node or not param:
+            typer.echo(f"错误:--set 格式应为 节点.参数=值,收到: {item}", err=True)
+            raise typer.Exit(code=2)
+        node_params.setdefault(node, {})[param] = _parse_value(raw)
+    return node_params
 
 
 def _build_spec(job_id: str, params: dict[str, Any]) -> JobSpec:
@@ -98,11 +118,17 @@ def run(
     publish: str | None = typer.Option(None, "--publish", help="发布平台,逗号分隔:bilibili,douyin"),
     publish_title: str | None = typer.Option(None, "--publish-title", help="发布标题(缺省取文案首句)"),
     publish_tags: str | None = typer.Option(None, "--publish-tags", help="发布标签,逗号分隔"),
+    workflow: str | None = typer.Option(
+        None, "--workflow", "-w", help="按工作流执行:模板 id 或 JSON 文件(见 vh workflows list)"
+    ),
+    set_: list[str] = typer.Option(
+        [], "--set", "-s", help="工作流节点参数,可重复:节点.参数=值,如 script.text=你好 或 montage.order=random"
+    ),
     no_resume: bool = typer.Option(False, "--no-resume", help="忽略 manifest,全部重跑"),
     json_out: bool = typer.Option(False, "--json", help="输出结构化 JSON(manifest)"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
-    """整跑流水线(三模式):audio 直接对口型;share_url 走 下载→转写→改写;text 直给。支持断点续跑。"""
+    """整跑:经典三模式(audio 直接对口型 / share_url 克隆 / text 直给),或 --workflow 按工作流执行。支持断点续跑。"""
     _setup_logging(verbose)
     if spec is None and not job_id:
         typer.echo("错误:--spec 或 --job-id 必须给一个", err=True)
@@ -127,12 +153,64 @@ def run(
         params["publish_platforms"] = [p.strip() for p in publish.split(",") if p.strip()]
     if publish_tags:
         params["publish_tags"] = [t.strip() for t in publish_tags.split(",") if t.strip()]
+    if workflow:
+        params["workflow"] = workflow
+    if set_:
+        params["node_params"] = _merge_sets(params.get("node_params") or {}, set_)
     try:
         manifest = run_job(_build_spec(jid, params), resume=not no_resume)
+    except WorkflowError as e:
+        _emit({"ok": False, "error": str(e), "errors": e.errors})
+        raise typer.Exit(code=2) from e
     except PipelineStageError as e:
         _emit({"ok": False, "failed_stage": e.stage_name, "error": str(e)})
         raise typer.Exit(code=1) from e
     _emit({"ok": True, "manifest": json.loads(manifest.model_dump_json())})
+
+
+workflows_app = typer.Typer(help="工作流:列出/查看/校验(在工作台里可视化编辑)", no_args_is_help=True)
+app.add_typer(workflows_app, name="workflows")
+
+
+@workflows_app.command("list")
+def workflows_list() -> None:
+    """列出内置模板与自定义工作流。"""
+    from vh_core import workflow as wf
+
+    _emit(wf.list_workflows(load_settings()))
+
+
+@workflows_app.command("show")
+def workflows_show(workflow_id: str = typer.Argument(..., help="工作流 id")) -> None:
+    """输出工作流 JSON,以及新建任务时必须填写的参数。"""
+    from vh_core import workflow as wf
+
+    try:
+        spec = wf.get_workflow(load_settings(), workflow_id)
+    except KeyError as e:
+        typer.echo(f"工作流不存在: {workflow_id}", err=True)
+        raise typer.Exit(code=1) from e
+    _emit({"workflow": spec.model_dump(exclude_none=True), "required": wf.missing_required_params(spec, {})})
+
+
+@workflows_app.command("validate")
+def workflows_validate(file: Path = typer.Argument(..., help="工作流 JSON 文件")) -> None:
+    """校验工作流文件(节点类型、连线类型、必需输入、环路)。"""
+    from vh_core import workflow as wf
+
+    spec = wf.WorkflowSpec.model_validate(json.loads(file.read_text(encoding="utf-8")))
+    errors = wf.validate_workflow(spec)
+    _emit({"ok": not errors, "errors": errors})
+    if errors:
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def steps() -> None:
+    """列出工作流可用的全部步骤(端口与参数)。"""
+    from vh_core.workflow import step_catalog
+
+    _emit(step_catalog())
 
 
 @app.command()

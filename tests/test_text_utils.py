@@ -6,10 +6,10 @@ from datetime import datetime
 
 import pytest
 
+from vh_core.llm import clean_api_key
 from vh_core.publishers.base import normalize_tags, truncate_title
 from vh_core.stages.postprocess import _align_lines_to_asr, _ass_ts, _split_cover_text, split_subtitle_lines
 from vh_core.stages.publish import _parse_publish_date, _parse_tags
-from vh_core.stages.rewrite import clean_api_key
 
 
 def test_split_subtitle_lines_by_punct_and_length() -> None:
@@ -17,6 +17,22 @@ def test_split_subtitle_lines_by_punct_and_length() -> None:
     long = "一" * 32
     assert split_subtitle_lines(long, max_len=15) == ["一" * 15, "一" * 15, "一" * 2]
     assert split_subtitle_lines("。。。\n\n") == []
+
+
+def test_split_subtitle_lines_latin_wraps_on_words() -> None:
+    lines = split_subtitle_lines("Hello world. This is a fairly long English sentence for subtitles!", max_len=10)
+    assert lines[0] == "Hello world"
+    assert all(len(line) <= 25 for line in lines)
+    assert " ".join(lines[1:]).rstrip("!") == "This is a fairly long English sentence for subtitles"
+
+
+def test_align_english_ignores_case_and_spaces() -> None:
+    segs = _align_lines_to_asr(["Hello world", "Good bye"], ["hello", "world", "good", "bye"],
+                               [[0, 400], [400, 900], [1200, 1500], [1500, 2000]], duration=2.5)  # fmt: skip
+    assert segs == [
+        {"text": "Hello world", "start": 0.0, "end": 0.9},
+        {"text": "Good bye", "start": 1.2, "end": 2.0},
+    ]
 
 
 def test_ass_timestamp_format() -> None:

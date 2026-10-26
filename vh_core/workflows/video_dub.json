@@ -1,0 +1,174 @@
+{
+  "id": "video_dub",
+  "title": "视频翻译(仅配音)",
+  "description": "同视频翻译,但不改画面:直接替换音轨 + 目标语言字幕。无需 GPU 口型同步,适合非出镜视频",
+  "nodes": [
+    {
+      "id": "source",
+      "type": "input_video",
+      "params": {
+        "path": ""
+      },
+      "position": {
+        "x": 0,
+        "y": 120
+      },
+      "title": "原视频"
+    },
+    {
+      "id": "asr",
+      "type": "transcribe",
+      "params": {},
+      "position": {
+        "x": 300,
+        "y": 0
+      },
+      "title": "识别原文"
+    },
+    {
+      "id": "trans",
+      "type": "translate",
+      "params": {
+        "target_lang": "英语"
+      },
+      "position": {
+        "x": 600,
+        "y": 0
+      },
+      "title": "翻译"
+    },
+    {
+      "id": "ref",
+      "type": "extract_audio",
+      "params": {
+        "start": 0,
+        "duration": 12
+      },
+      "position": {
+        "x": 300,
+        "y": 260
+      },
+      "title": "截取原声音色"
+    },
+    {
+      "id": "voice",
+      "type": "tts",
+      "params": {},
+      "position": {
+        "x": 900,
+        "y": 120
+      },
+      "title": "克隆原声配音"
+    },
+    {
+      "id": "fit",
+      "type": "fit_audio",
+      "params": {},
+      "position": {
+        "x": 1200,
+        "y": 120
+      },
+      "title": "对齐原视频时长"
+    },
+    {
+      "id": "dub",
+      "type": "mux_audio",
+      "params": {
+        "original_volume": 0
+      },
+      "position": {
+        "x": 1500,
+        "y": 120
+      },
+      "title": "替换音轨"
+    },
+    {
+      "id": "post",
+      "type": "postprocess",
+      "params": {
+        "postprocess.silence_cut": false,
+        "postprocess.bgm": false
+      },
+      "position": {
+        "x": 1800,
+        "y": 120
+      },
+      "title": "后期包装"
+    }
+  ],
+  "edges": [
+    {
+      "source": "source",
+      "sourceHandle": "video",
+      "target": "asr",
+      "targetHandle": "audio"
+    },
+    {
+      "source": "asr",
+      "sourceHandle": "transcript",
+      "target": "trans",
+      "targetHandle": "text"
+    },
+    {
+      "source": "source",
+      "sourceHandle": "video",
+      "target": "ref",
+      "targetHandle": "media"
+    },
+    {
+      "source": "trans",
+      "sourceHandle": "text",
+      "target": "voice",
+      "targetHandle": "text"
+    },
+    {
+      "source": "ref",
+      "sourceHandle": "audio",
+      "target": "voice",
+      "targetHandle": "ref_audio"
+    },
+    {
+      "source": "voice",
+      "sourceHandle": "speech",
+      "target": "fit",
+      "targetHandle": "audio"
+    },
+    {
+      "source": "source",
+      "sourceHandle": "video",
+      "target": "fit",
+      "targetHandle": "reference"
+    },
+    {
+      "source": "source",
+      "sourceHandle": "video",
+      "target": "dub",
+      "targetHandle": "video"
+    },
+    {
+      "source": "fit",
+      "sourceHandle": "audio",
+      "target": "dub",
+      "targetHandle": "audio"
+    },
+    {
+      "source": "dub",
+      "sourceHandle": "video",
+      "target": "post",
+      "targetHandle": "video"
+    },
+    {
+      "source": "trans",
+      "sourceHandle": "text",
+      "target": "post",
+      "targetHandle": "text"
+    },
+    {
+      "source": "fit",
+      "sourceHandle": "audio",
+      "target": "post",
+      "targetHandle": "speech"
+    }
+  ],
+  "final": "post.final"
+}

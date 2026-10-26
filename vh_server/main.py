@@ -29,17 +29,36 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from vh_core import __version__
+from vh_core import workflow as wf
 from vh_core.config import PROJECT_ROOT, Settings, load_settings
 from vh_core.models import STAGE_NAMES, JobSpec, validate_job_id
+from vh_core.pipeline import expand_dotted
 
 from .jobs import ACTIVE, JobBusyError, JobQueue, Runner
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+# 上传类型 → (允许的扩展名, 素材库内子目录)
+UPLOAD_KINDS = {
+    "audio": (AUDIO_EXTS, ""),
+    "video": (VIDEO_EXTS, ""),
+    "bgm": (AUDIO_EXTS, "bgm"),
+    "broll": (IMAGE_EXTS | VIDEO_EXTS, "broll"),
+}
 
 # 客户端可提交的"文件路径"参数:服务端只允许指向 assets/ 或 workspace/ 内,
 # 防止经 API 让 ffmpeg/ASR 读取服务器任意文件再经产物下载外泄
-PATH_PARAMS = ("audio", "ref_audio", "avatar_video", "bgm_path", "subtitle_font", "transcribe_audio")
+PATH_PARAMS = (
+    "audio",
+    "ref_audio",
+    "avatar_video",
+    "bgm_path",
+    "subtitle_font",
+    "transcribe_audio",
+    "path",
+    "media_dir",
+)
 
 # 鉴权失败限速:同一 IP 在窗口期内失败次数超限即临时封禁
 AUTH_FAIL_WINDOW_S = 300
@@ -50,6 +69,7 @@ CONSENT_STATEMENTS = {
     "audio": "我确认:该音频中的声音属于本人,或已取得声音权利人的书面授权,同意将其用于 AI 声音合成。",
     "video": "我确认:该视频中的人物肖像属于本人,或已取得肖像权利人的书面授权,同意将其用于 AI 数字人生成。",
     "bgm": "我确认:已取得该音乐的合法使用授权(含商用场景,如适用)。",
+    "broll": "我确认:已取得该图片/视频素材的使用授权;画面中如有可识别人物,已取得其肖像授权。",
 }
 CONSENT_LOG = ".consent.jsonl"
 
@@ -65,6 +85,9 @@ SECURITY_HEADERS = {
 
 class JobCreate(BaseModel):
     job_id: str | None = Field(None, max_length=128)
+    # 工作流模式:workflow = 模板/工作流 id,node_params = {节点 id: {参数: 值}};给了 workflow 时忽略下方经典参数
+    workflow: str | None = Field(None, max_length=64)
+    node_params: dict[str, dict[str, Any]] | None = None
     audio: str | None = None  # 直接驱动音频路径(跳过 TTS,直接对口型)
     text: str | None = Field(None, max_length=20000)  # 口播文案(文案直给模式)或直接音频的配套字幕
     share_url: str | None = Field(None, max_length=2000)  # 抖音分享链接(克隆模式)
@@ -84,8 +107,8 @@ class JobCreate(BaseModel):
 
 class JobRun(BaseModel):
     resume: bool = True
-    only: str | None = None  # 单 stage 名,如 publish
-    params: dict[str, Any] | None = None  # 覆盖/补充参数(如发布平台)
+    only: str | None = None  # 单 stage / 工作流节点 id,如 publish
+    params: dict[str, Any] | None = None  # 覆盖/补充参数(如发布平台;工作流任务用 {"node_params": {...}})
 
 
 # ---------------------------------------------------------------- 工具函数
@@ -120,6 +143,21 @@ def _check_param_paths(settings: Settings, params: dict[str, Any]) -> None:
         target = settings.abs_path(Path(val)).resolve()
         if not _within(target, *allowed):
             raise HTTPException(400, f"参数 {key} 只允许引用 assets/ 或 workspace/ 内的文件: {val}")
+
+
+def _check_workflow_paths(settings: Settings, spec: wf.WorkflowSpec, node_params: dict[str, Any] | None) -> None:
+    for node_id, params in wf.effective_params(spec, node_params).items():
+        try:
+            _check_param_paths(settings, expand_dotted(params))
+        except HTTPException as e:
+            raise HTTPException(400, f"节点 {node_id}: {e.detail}") from e
+
+
+def _merge_node_params(base: dict[str, Any] | None, extra: dict[str, Any] | None) -> dict[str, Any]:
+    merged = {k: dict(v) for k, v in (base or {}).items()}
+    for node_id, params in (extra or {}).items():
+        merged.setdefault(node_id, {}).update(params or {})
+    return merged
 
 
 def _unique_dest(dest: Path) -> Path:
@@ -267,7 +305,7 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
     def list_assets() -> dict[str, Any]:
         assets = settings.assets
         if not assets.is_dir():
-            return {"audios": [], "videos": [], "bgms": []}
+            return {"audios": [], "videos": [], "bgms": [], "brolls": [], "dirs": []}
 
         def _scan(d: Path, exts: set[str]) -> list[str]:
             if not d.is_dir():
@@ -278,22 +316,25 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
             "audios": _scan(assets, AUDIO_EXTS),
             "videos": _scan(assets, VIDEO_EXTS),
             "bgms": _scan(assets / "bgm", AUDIO_EXTS),
+            "brolls": _scan(assets / "broll", IMAGE_EXTS | VIDEO_EXTS),
+            # 素材库下的子目录(混剪节点可选不同素材目录)
+            "dirs": sorted(_rel(d) for d in assets.iterdir() if d.is_dir() and not d.name.startswith(".")),
         }
 
     @app.post("/api/assets")
     def upload_asset(
         request: Request,
         file: UploadFile,
-        kind: str = Query(..., pattern="^(audio|video|bgm)$"),
+        kind: str = Query(..., pattern="^(audio|video|bgm|broll)$"),
         consent: bool = Query(False, description="上传者确认已获得授权(见 /api/settings 的 consent_statements)"),
     ) -> dict[str, Any]:
         if not consent:
             raise HTTPException(400, f"上传前需确认授权声明:{CONSENT_STATEMENTS[kind]}")
         ext = Path(file.filename or "").suffix.lower()
-        allowed = AUDIO_EXTS if kind in ("audio", "bgm") else VIDEO_EXTS
+        allowed, subdir = UPLOAD_KINDS[kind]
         if ext not in allowed:
             raise HTTPException(400, f"不支持的文件类型 {ext}({kind} 允许: {sorted(allowed)})")
-        dest_dir = settings.assets / "bgm" if kind == "bgm" else settings.assets
+        dest_dir = settings.assets / subdir if subdir else settings.assets
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = _unique_dest(dest_dir / _safe_filename(file.filename or "", ext))
         limit = settings.max_upload_mb * 1024 * 1024
@@ -375,19 +416,29 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
         job_id = job_dir.name
         manifest = _read_manifest(job_dir) if manifest is None else manifest
         stages = manifest.get("stages", {})
+        spec = queue.load_spec(job_id)
+        flow = wf.load_job_workflow(job_dir)
+        if flow is not None:
+            order = [n.id for n in wf.topo_order(flow)]
+            final_node, _, final_port = (wf.final_ref(flow) or ".").partition(".")
+            mode = flow.id
+        else:
+            order = list(STAGE_NAMES)
+            final_node, final_port = "postprocess", "final"
+            mode = ("audio" if spec.get("audio") else ("clone" if spec.get("share_url") else "text")) if spec else None
+        final = stages.get(final_node, {}).get("outputs", {}).get(final_port)
+        cover = stages.get(final_node, {}).get("outputs", {}).get("cover")  # 后期节点同时产出封面
         state = queue.state(job_id)
         status = state.get("queue_status")
         if not status:
             if any(s.get("status") == "failed" for s in stages.values()):
                 status = "failed"
-            elif stages.get("postprocess", {}).get("status") in ("success", "skipped"):
+            elif stages.get(final_node, {}).get("status") in ("success", "skipped"):
                 status = "done"
             elif stages:
                 status = "interrupted"
             else:
                 status = "unknown"
-        final = stages.get("postprocess", {}).get("outputs", {}).get("final")
-        spec = queue.load_spec(job_id)
         return {
             "job_id": job_id,
             "status": status,
@@ -399,11 +450,13 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
                 if state.get("submitted_at")
                 else None
             ),
-            "mode": ("audio" if spec.get("audio") else ("clone" if spec.get("share_url") else "text"))
-            if spec
-            else None,
+            "mode": mode,
+            "workflow": {"id": flow.id, "title": flow.title} if flow else None,
             "has_final": bool(final),
-            "stages": {n: stages.get(n, {}).get("status", "pending") for n in STAGE_NAMES},
+            "final": final,
+            "cover": cover,
+            "stage_order": order,
+            "stages": {n: stages.get(n, {}).get("status", "pending") for n in order},
         }
 
     @app.get("/api/jobs")
@@ -423,6 +476,8 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
 
     @app.post("/api/jobs")
     def create_job(body: JobCreate) -> dict[str, Any]:
+        if body.workflow:
+            return _create_workflow_job(body)
         has_audio = bool((body.audio or "").strip())
         has_text = bool((body.text or "").strip())
         has_share = bool((body.share_url or "").strip())
@@ -431,14 +486,8 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
             raise HTTPException(400, "抖音克隆模式(share_url)不能与 text 或 audio 同时提供")
         if not (has_audio or has_text or has_share):
             raise HTTPException(400, "必须提供 audio(直接音频)、text(文案直给) 或 share_url(抖音克隆) 其中之一")
-        job_id = body.job_id or f"job-{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
-        try:
-            validate_job_id(job_id)
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from e
-        if (settings.workspace / job_id).exists():
-            raise HTTPException(409, f"任务 {job_id} 已存在,请换一个 ID 或在详情页重跑")
-        params = body.model_dump(exclude_none=True, exclude={"job_id"})
+        job_id = _new_job_id(body)
+        params = body.model_dump(exclude_none=True, exclude={"job_id", "workflow", "node_params"})
         _check_param_paths(settings, params)
         queue.save_spec(job_id, params)
         try:
@@ -446,6 +495,37 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
         except JobBusyError as e:
             raise HTTPException(409, str(e)) from e
         logger.info(f"[{job_id}] 新建任务入队")
+        return {"ok": True, "job_id": job_id}
+
+    def _new_job_id(body: JobCreate) -> str:
+        job_id = body.job_id or f"job-{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
+        try:
+            validate_job_id(job_id)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        if (settings.workspace / job_id).exists():
+            raise HTTPException(409, f"任务 {job_id} 已存在,请换一个 ID 或在详情页重跑")
+        return job_id
+
+    def _create_workflow_job(body: JobCreate) -> dict[str, Any]:
+        try:
+            spec = wf.get_workflow(settings, body.workflow or "")
+        except KeyError as e:
+            raise HTTPException(404, f"工作流不存在: {body.workflow}") from e
+        errors = wf.validate_workflow(spec) + wf.missing_required_params(spec, body.node_params)
+        if errors:
+            raise HTTPException(400, ";".join(errors))
+        _check_workflow_paths(settings, spec, body.node_params)
+        job_id = _new_job_id(body)
+        # 立即写工作流快照:之后修改模板不影响本任务(含排队期间)
+        wf.resolve_job_workflow(settings, settings.workspace / job_id, spec.model_dump())
+        params = {"workflow": spec.id, "node_params": body.node_params or {}}
+        queue.save_spec(job_id, params)
+        try:
+            queue.submit(job_id, params, resume=True)
+        except JobBusyError as e:
+            raise HTTPException(409, str(e)) from e
+        logger.info(f"[{job_id}] 新建工作流任务入队: {spec.id}")
         return {"ok": True, "job_id": job_id}
 
     @app.get("/api/jobs/{job_id}")
@@ -459,12 +539,19 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
 
     @app.post("/api/jobs/{job_id}/run")
     def rerun_job(job_id: str, body: JobRun) -> dict[str, Any]:
-        _job_dir(job_id)
-        if body.only and body.only not in STAGE_NAMES:
-            raise HTTPException(400, f"未知 stage: {body.only}(可选: {list(STAGE_NAMES)})")
+        job_dir = _job_dir(job_id)
+        flow = wf.load_job_workflow(job_dir)
+        names = [n.id for n in flow.nodes] if flow else list(STAGE_NAMES)
+        if body.only and body.only not in names:
+            raise HTTPException(400, f"未知环节: {body.only}(可选: {names})")
         params = queue.load_spec(job_id)
-        params.update(body.params or {})
-        _check_param_paths(settings, params)
+        if flow is not None:
+            extra = (body.params or {}).get("node_params")
+            params["node_params"] = _merge_node_params(params.get("node_params"), extra)
+            _check_workflow_paths(settings, flow, params["node_params"])
+        else:
+            params.update(body.params or {})
+            _check_param_paths(settings, params)
         if body.params:
             queue.save_spec(job_id, params)
         try:
@@ -498,6 +585,50 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
         if not target.is_relative_to(job_dir) or not target.is_file():
             raise HTTPException(404, "文件不存在或路径非法")
         return FileResponse(target)
+
+    # ------------------------------------------------------------ 工作流
+
+    @app.get("/api/steps")
+    def list_steps() -> list[dict[str, Any]]:
+        return wf.step_catalog()
+
+    @app.get("/api/workflows")
+    def list_workflows() -> list[dict[str, Any]]:
+        return wf.list_workflows(settings)
+
+    @app.get("/api/workflows/{workflow_id}")
+    def get_workflow(workflow_id: str) -> dict[str, Any]:
+        try:
+            spec = wf.get_workflow(settings, workflow_id)
+        except KeyError as e:
+            raise HTTPException(404, f"工作流不存在: {workflow_id}") from e
+        return {**spec.model_dump(), "builtin": workflow_id in wf.builtin_ids()}
+
+    @app.post("/api/workflows/validate")
+    def validate_workflow(spec: wf.WorkflowSpec) -> dict[str, Any]:
+        errors = wf.validate_workflow(spec)
+        return {"ok": not errors, "errors": errors}
+
+    @app.put("/api/workflows/{workflow_id}")
+    def save_workflow(workflow_id: str, spec: wf.WorkflowSpec) -> dict[str, Any]:
+        if spec.id != workflow_id:
+            raise HTTPException(400, "路径中的 id 与工作流 id 不一致")
+        try:
+            wf.save_workflow(settings, spec)
+        except wf.WorkflowError as e:
+            raise HTTPException(400, ";".join(e.errors)) from e
+        logger.info(f"工作流已保存: {workflow_id}")
+        return {"ok": True, "id": workflow_id}
+
+    @app.delete("/api/workflows/{workflow_id}")
+    def delete_workflow(workflow_id: str) -> dict[str, Any]:
+        try:
+            wf.delete_workflow(settings, workflow_id)
+        except wf.WorkflowError as e:
+            raise HTTPException(400, ";".join(e.errors)) from e
+        except KeyError as e:
+            raise HTTPException(404, f"工作流不存在: {workflow_id}") from e
+        return {"ok": True}
 
     # ------------------------------------------------------------ 抖音登录
 

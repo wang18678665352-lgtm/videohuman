@@ -7,13 +7,13 @@ config llm_prompt_file 可指向自定义提示词文件(UTF-8 纯文本),由使
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from loguru import logger
 
 from ..config import Settings
-from ..pipeline import Stage, StageContext
+from ..llm import chat, clean_api_key
+from ..pipeline import Port, Stage, StageContext
 
 # 内置默认提示词:只做口播化润色与纠错,保持原意与事实,不以"降重/规避查重"为目标
 DEFAULT_PROMPT = """你是专业的短视频口播文案编辑。请在不改变原意和事实的前提下润色下面的文案:
@@ -24,21 +24,6 @@ DEFAULT_PROMPT = """你是专业的短视频口播文案编辑。请在不改变
 5. 字数与原文接近;
 6. 只输出润色后的正文,不要任何解释、标注或问候。每行一个完整语义单元。
 """
-
-
-def clean_api_key(api_key_input: str | None) -> str | None:
-    """清理 API Key 格式,兼容 v1 的 JSON 列表格式输入。"""
-    if not api_key_input:
-        return None
-    key = api_key_input.strip()
-    if key.startswith("[") and key.endswith("]"):
-        try:
-            key_list = json.loads(key)
-            if isinstance(key_list, list) and key_list:
-                key = key_list[0]
-        except (json.JSONDecodeError, TypeError):
-            key = key.strip("[]\"' ")
-    return key or None
 
 
 def load_prompt(settings: Settings) -> str:
@@ -56,24 +41,32 @@ def load_prompt(settings: Settings) -> str:
 
 class RewriteStage(Stage):
     name = "rewrite"
+    title = "文案润色"
+    category = "文本"
+    description = "LLM 口播化润色与纠错(未配置 LLM 时原样输出)"
+    inputs = {"text": Port("text", "文案", required=True)}
+    outputs = {"text": Port("text", "润色后文案")}
+
+    def _source_text(self, ctx: StageContext) -> str:
+        # 输入优先级:连线输入 > params.text(直给) > transcribe 产物(克隆流程)
+        if "text" in ctx.inputs:
+            return ctx.inputs["text"].read_text(encoding="utf-8").strip()
+        text = (ctx.params.get("text") or "").strip()
+        if text:
+            return text
+        transcript = ctx.input("text", "transcribe/transcript.txt")
+        return transcript.read_text(encoding="utf-8").strip() if transcript else ""
 
     def enabled(self, ctx: StageContext) -> bool:
         """如果提供了直接驱动音频(对口型直通模式)，跳过文案改写阶段。"""
         if bool(ctx.params.get("audio")):
             return False
-        text = (ctx.params.get("text") or "").strip()
-        transcript = ctx.job_dir / "transcribe" / "transcript.txt"
-        return bool(text) or transcript.exists()
+        return bool(self._source_text(ctx))
 
     def run(self, ctx: StageContext) -> dict[str, Path]:
-        # 输入优先级:params.text(直给) > transcribe 产物(克隆流程)
-        text = (ctx.params.get("text") or "").strip()
+        text = self._source_text(ctx)
         if not text:
-            transcript = ctx.job_dir / "transcribe" / "transcript.txt"
-            if transcript.exists():
-                text = transcript.read_text(encoding="utf-8").strip()
-        if not text:
-            raise ValueError("rewrite 需要 params.text 或 transcribe 产物 transcript.txt")
+            raise ValueError("rewrite 需要输入文案(params.text 或 transcribe 产物)")
 
         key = clean_api_key(ctx.settings.llm_api_key)
         if not key:
@@ -87,29 +80,13 @@ class RewriteStage(Stage):
         return {"text": out}
 
     def _llm_rewrite(self, ctx: StageContext, text: str, key: str) -> str:
-        from openai import OpenAI
-
         s = ctx.settings
         prompt = load_prompt(s)  # 在 try 外:提示词配置错误应让 stage 失败,而不是回退原文
-        # config.toml/env 里常带着引号书写,统一剥掉;不设 base_url 时 SDK 默认走官方地址
-        base_url = s.llm_base_url.strip().strip("\"'") or None
-        # 显式超时 + 有限重试:LLM 接口抖动不应让整条流水线卡死在这里
-        client = OpenAI(api_key=key, base_url=base_url, timeout=s.llm_timeout, max_retries=2)
         try:
-            completion = client.chat.completions.create(
-                model=s.llm_model,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": f"原文案:\n{text}"},
-                ],
-                temperature=0.7,
-            )
-            result = (completion.choices[0].message.content or "").strip()
-            if not result:
-                raise RuntimeError("LLM 返回空内容")
-            logger.info(f"LLM 润色完成({s.llm_model}),{len(text)}字 → {len(result)}字")
-            return result
+            result = chat(s, prompt, f"原文案:\n{text}")
         except Exception as e:
             # v1 行为:改写失败回退原文,不阻断流水线
-            logger.warning(f"LLM 改写失败,回退原文: {e}")
+            logger.warning(f"LLM 润色失败,回退原文: {e}")
             return text
+        logger.info(f"LLM 润色完成({s.llm_model}),{len(text)}字 → {len(result)}字")
+        return result
