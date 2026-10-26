@@ -7,7 +7,10 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,7 +19,7 @@ from typing import Any, ClassVar
 from loguru import logger
 
 from .config import Settings
-from .models import JobManifest, StageResult, StageStatus
+from .models import JobManifest, StageResult, StageStatus, validate_job_id
 
 
 @dataclass
@@ -54,7 +57,7 @@ class Pipeline:
         self.settings = settings
 
     def _job_dir(self, job_id: str) -> Path:
-        return self.settings.workspace / job_id
+        return self.settings.workspace / validate_job_id(job_id)
 
     def _manifest_path(self, job_id: str) -> Path:
         return self._job_dir(job_id) / "manifest.json"
@@ -68,7 +71,7 @@ class Pipeline:
     def save_manifest(self, manifest: JobManifest) -> None:
         p = self._manifest_path(manifest.job_id)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+        atomic_write_text(p, manifest.model_dump_json(indent=2))
 
     def run(
         self,
@@ -76,20 +79,31 @@ class Pipeline:
         params: dict[str, Any] | None = None,
         only: list[str] | None = None,
         resume: bool = True,
+        should_cancel: Callable[[], bool] | None = None,
     ) -> JobManifest:
-        """按序执行 stages。resume=True 时跳过 manifest 中已成功的 stage。"""
+        """按序执行 stages。resume=True 时跳过 manifest 中已成功的 stage。
+
+        only:只跑指定 stage,且**无论是否已完成都重跑**(单步重跑语义),
+        其余 stage 的 manifest 记录保留;resume=False 仅在整跑时清空 manifest。
+        should_cancel:每个 stage 开始前调用,返回 True 则抛 PipelineCancelled
+        (GPU 推理无法安全中断,取消在 stage 边界生效)。
+        """
         params = params or {}
         job_dir = self._job_dir(job_id)
         job_dir.mkdir(parents=True, exist_ok=True)
-        manifest = self.load_manifest(job_id) if resume else JobManifest(job_id=job_id)
+        fresh = not resume and only is None
+        manifest = JobManifest(job_id=job_id) if fresh else self.load_manifest(job_id)
 
         for stage in self.stages:
             if only is not None and stage.name not in only:
                 continue
-            if manifest.is_done(stage.name):
+            if only is None and manifest.is_done(stage.name):
+                # 不改写状态:保持 SUCCESS,否则下一次续跑会把它当未完成重跑
                 logger.info(f"[{job_id}] stage '{stage.name}' 已完成，跳过(断点续跑)")
-                manifest.stages[stage.name].status = StageStatus.SKIPPED
                 continue
+            if should_cancel is not None and should_cancel():
+                logger.info(f"[{job_id}] 已取消,停在 stage '{stage.name}' 之前")
+                raise PipelineCancelled(job_id, stage.name)
 
             stage_dir = job_dir / stage.name
             stage_dir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +147,27 @@ class Pipeline:
             logger.info(f"[{job_id}] stage '{stage.name}' 完成: {result.outputs}")
 
         return manifest
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """先写同目录临时文件再 os.replace:进程崩溃/断电也不会留下半截 JSON。"""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+class PipelineCancelled(RuntimeError):
+    def __init__(self, job_id: str, stage_name: str):
+        super().__init__(f"任务 {job_id} 已取消(停在 stage '{stage_name}' 之前)")
+        self.job_id = job_id
+        self.stage_name = stage_name
 
 
 class PipelineStageError(RuntimeError):

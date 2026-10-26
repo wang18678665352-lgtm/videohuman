@@ -4,15 +4,19 @@
       <h2>
         {{ id }}
         <el-tag :type="statusType(job.status)" style="margin-left: 8px">{{ statusText(job.status) }}</el-tag>
+        <span v-if="job.queue_position" class="queue-pos">排队第 {{ job.queue_position }} 位</span>
       </h2>
       <div>
+        <el-button v-if="active" type="warning" plain :disabled="job.status === 'cancelling'" @click="cancel">
+          取消任务
+        </el-button>
         <el-select v-model="rerunStage" placeholder="整体重跑" style="width: 160px; margin-right: 8px" clearable>
           <el-option v-for="s in stageNames" :key="s" :label="`只跑 ${s}`" :value="s" />
         </el-select>
-        <el-button type="warning" @click="rerun(false)" :disabled="job.status === 'running' || job.status === 'queued'">
+        <el-button type="warning" @click="rerun(false)" :disabled="active">
           {{ rerunStage ? `重跑 ${rerunStage}` : '续跑未完成环节' }}
         </el-button>
-        <el-button type="danger" @click="rerun(true)" :disabled="job.status === 'running' || job.status === 'queued'">全部重跑</el-button>
+        <el-button type="danger" @click="rerun(true)" :disabled="active">全部重跑</el-button>
       </div>
     </div>
     <el-alert v-if="job.error" :title="job.error" type="error" :closable="false" style="margin-bottom: 16px" />
@@ -59,7 +63,9 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { assetUrl, fetchText, fileUrl, getJob, getSettings, runJob } from '../api.js'
+import {
+  STATUS_TEXT, STATUS_TYPE, assetUrl, cancelJob, fetchText, fileUrl, getJob, getSettings, isActive, runJob,
+} from '../api.js'
 
 const props = defineProps({ id: String })
 const job = ref({ stages: {} })
@@ -70,6 +76,7 @@ const rewriteText = ref('')
 const publishResult = ref('')
 let timer = null
 
+const active = computed(() => isActive(job.value.status))
 const outputs = computed(() => job.value.manifest?.stages?.postprocess?.outputs || {})
 const midOutputs = computed(() => {
   const st = job.value.manifest?.stages || {}
@@ -101,23 +108,38 @@ function stageDur(name) {
   return `${d.toFixed(1)}s`
 }
 function stageError(name) { return stage(name)?.error || '' }
-function statusType(s) { return { done: 'success', failed: 'danger', running: '', queued: 'info' }[s] || 'info' }
-function statusText(s) {
-  return { done: '完成', failed: '失败', running: '运行中', queued: '排队中', interrupted: '中断' }[s] || s
-}
+function statusType(s) { return STATUS_TYPE[s] || 'info' }
+function statusText(s) { return STATUS_TEXT[s] || s }
 
 async function refresh() {
-  job.value = await getJob(props.id)
-  const active = job.value.status === 'running' || job.value.status === 'queued'
+  try {
+    job.value = await getJob(props.id)
+  } catch (e) {
+    ElMessage.error(`刷新任务失败: ${e.message}`)
+  }
   clearTimeout(timer)
-  timer = setTimeout(refresh, active ? 2000 : 15000)
+  timer = setTimeout(refresh, active.value ? 2000 : 15000)
 }
 
 async function rerun(noResume) {
   const body = { resume: !noResume }
   if (rerunStage.value && !noResume) body.only = rerunStage.value
-  await runJob(props.id, body)
-  ElMessage.success('已入队')
+  try {
+    await runJob(props.id, body)
+    ElMessage.success('已入队')
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
+  refresh()
+}
+
+async function cancel() {
+  try {
+    const r = await cancelJob(props.id)
+    ElMessage.success(r.status === 'cancelled' ? '已取消' : '已请求取消,当前环节完成后停止')
+  } catch (e) {
+    ElMessage.error(e.message)
+  }
   refresh()
 }
 
@@ -139,6 +161,7 @@ onUnmounted(() => clearTimeout(timer))
 <style scoped>
 .bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .bar h2 { margin: 0; display: flex; align-items: center; }
+.queue-pos { margin-left: 8px; font-size: 13px; font-weight: normal; color: #909399; }
 .stage-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
 .stage-tag { width: 76px; text-align: center; }
 .stage-name { font-family: monospace; width: 110px; }

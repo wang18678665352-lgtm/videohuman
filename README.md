@@ -71,6 +71,67 @@ LLM 改写需要配置 API Key(默认 DeepSeek 兼容接口):设置环境变量
 发布功能需要各平台登录态:抖音用 `uv run vh login` 扫码;B 站用 biliup 登录 JSON,
 均放在 `configs/cookies/`(已在 .gitignore 中)。
 
+## 生产部署与运维
+
+### 环境自检
+
+```bash
+uv run vh doctor        # GPU / ffmpeg / 模型权重 / 字体 / 前端构建 / 鉴权,输出 JSON,必需项缺失时退出码 1
+uv run vh --version
+```
+
+### Web 工作台的安全基线
+
+- **访问令牌**:`vh serve` 监听非本机地址(如 `--host 0.0.0.0`)时**必须**设置 `VH_WEB_TOKEN`,
+  否则拒绝启动(确需在可信内网裸跑可加 `--allow-no-auth`)。令牌用常量时间比较;
+  同一 IP 5 分钟内失败 20 次会被临时拒绝(HTTP 429)。
+- **路径隔离**:经 API 提交的素材路径(`audio`/`ref_audio`/`avatar_video`/`bgm_path` 等)
+  只允许指向 `assets/` 或 `workspace/` 内;文件下载接口禁止路径穿越;`job_id` 仅允许安全字符。
+- **上传**:文件名清洗、同名自动改名不覆盖、大小上限 `VH_MAX_UPLOAD_MB`(默认 2048)。
+- **CORS**:默认关闭(前端与 API 同源);前后端分离部署时用 `VH_CORS_ORIGINS` 配白名单。
+- 公网暴露请放在 HTTPS 反向代理(Nginx/Caddy)之后;token 会出现在媒体 URL 的 query 中,
+  勿在不可信的代理上记录完整 URL。
+
+### 任务队列
+
+- 单 GPU 串行执行,状态落盘 `workspace/{job_id}/status.server.json`;**服务重启后**
+  排队中的任务自动恢复,运行中的任务标记为"中断",可一键续跑(断点续跑基于 manifest)。
+- 支持取消:排队中立即出队;运行中在当前环节结束后停止(GPU 推理无法安全中途打断)。
+- 支持删除任务(连同全部产物),排队/运行中的任务需先取消。
+
+### HTTP API 摘要
+
+除 `/api/health` 外均需 `X-VH-Token` 头(或 `?token=`)。完整交互文档:启动后访问 `/docs`。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/health` | 探活(免鉴权),含队列状态 |
+| GET | `/api/settings` | 引擎/平台/登录态等配置 |
+| GET/POST | `/api/assets` | 素材列表 / 上传(`?kind=audio\|video\|bgm`) |
+| GET/POST | `/api/jobs` | 任务列表(`?status=&limit=&offset=`)/ 新建任务 |
+| GET/DELETE | `/api/jobs/{id}` | 任务详情 / 删除任务 |
+| POST | `/api/jobs/{id}/run` | 续跑、单环节重跑(`only`)、全部重跑(`resume=false`) |
+| POST | `/api/jobs/{id}/cancel` | 取消任务 |
+| GET | `/api/jobs/{id}/file?path=` | 下载任务产物 |
+
+### 日志
+
+服务端日志按天滚动写入 `logs/server_YYYY-MM-DD.log`(保留 14 天,目录可用 `VH_LOG_DIR` 修改);
+每个请求带 `X-Request-ID` 响应头,出错时可据此在日志中定位。
+
+### 开发与测试
+
+测试不依赖 GPU 与模型权重(使用假 runner),几秒内跑完:
+
+```bash
+uv venv .venv-dev && uv pip install -p .venv-dev -r requirements-dev.txt
+.venv-dev/bin/python -m pytest
+.venv-dev/bin/ruff check . && .venv-dev/bin/ruff format --check vh_core vh_cli vh_server tests
+cd web && npm ci && npm run build
+```
+
+CI(`.github/workflows/ci.yml`)在每次 push/PR 上执行以上检查。
+
 ## 可选:LstmSync 引擎
 
 默认数字人引擎是 MuseTalk(MIT)。如果你另有 **LstmSync** 引擎(第三方授权制产品,
@@ -84,13 +145,14 @@ LLM 改写需要配置 API Key(默认 DeepSeek 兼容接口):设置环境变量
 videohuman/
 ├── vh_core/            # 内核:pipeline 编排 / stages 环节 / providers 算力 / postproc 后期 / publishers 发布
 ├── vh_cli/             # typer CLI(vh 命令)
-├── vh_server/          # FastAPI Web 工作台 API
+├── vh_server/          # FastAPI Web 工作台 API + 持久化任务队列
 ├── web/                # Vue3 + Element Plus 工作台前端
 ├── third_party/        # vendor: MuseTalk / CosyVoice / LatentSync / index-tts
 ├── models/             # 权重(不入库,download_weights.py 下载)
 ├── assets/             # 字体 / BGM(自备)/ 背景图(自备)
 ├── configs/            # default.toml 默认配置 + cookies(敏感,不入库)
 ├── examples/           # 示例 JobSpec
+├── tests/              # 单元/接口测试(无需 GPU)
 └── workspace/          # 运行产物(不入库)
 ```
 

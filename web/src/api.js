@@ -37,9 +37,11 @@ export const getAssets = () => http.get('/assets')
 export const getAssetRefText = (path) =>
   http.get('/asset-ref-text', { params: { path }, timeout: 120000 })
 export const listJobs = () => http.get('/jobs')
-export const getJob = (id) => http.get(`/jobs/${id}`)
+export const getJob = (id) => http.get(`/jobs/${encodeURIComponent(id)}`)
 export const createJob = (payload) => http.post('/jobs', payload)
-export const runJob = (id, body) => http.post(`/jobs/${id}/run`, body)
+export const runJob = (id, body) => http.post(`/jobs/${encodeURIComponent(id)}/run`, body)
+export const cancelJob = (id) => http.post(`/jobs/${encodeURIComponent(id)}/cancel`)
+export const deleteJob = (id) => http.delete(`/jobs/${encodeURIComponent(id)}`)
 export const loginDouyin = () => http.post('/login/douyin')
 export const loginDouyinStatus = () => http.get('/login/douyin/status')
 
@@ -57,5 +59,16 @@ export const fetchText = (jobId, path) =>
 export function uploadAsset(file, kind) {
   const fd = new FormData()
   fd.append('file', file)
-  return http.post(`/assets?kind=${kind}`, fd)
+  // 大视频上传可能很慢,不套用默认 30s 超时
+  return http.post(`/assets?kind=${kind}`, fd, { timeout: 0 })
 }
+
+// 状态展示统一在这里定义,列表页与详情页共用
+export const STATUS_TEXT = {
+  done: '完成', failed: '失败', running: '运行中', queued: '排队中', interrupted: '中断',
+  cancelling: '取消中', cancelled: '已取消', unknown: '未知',
+}
+export const STATUS_TYPE = {
+  done: 'success', failed: 'danger', running: 'primary', queued: 'info', cancelling: 'warning', cancelled: 'info',
+}
+export const isActive = (s) => s === 'running' || s === 'queued' || s === 'cancelling'

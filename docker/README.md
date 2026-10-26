@@ -34,12 +34,12 @@ start_server.bat    :: 起服务(0.0.0.0:8100,自动开浏览器)
 
 ```bash
 cd docker
-cp .env.example .env     # 填入 VH_WEB_TOKEN(公网必须)
+cp .env.example .env     # 填入 VH_WEB_TOKEN(必填,未设置时服务拒绝启动)
 docker compose up -d --build
 ```
 
 - 首次构建约 10~20 分钟(要下载 CUDA 基础镜像、torch cu128、Chromium 等约 8~10GB);之后改代码重建只需一两分钟(依赖层有缓存)。
-- 前端有改动时:先在宿主机 `cd web && npm run build`,再 `docker compose up -d --build`(dist 打进镜像)。
+- 前端在镜像构建阶段自动编译(多阶段构建),宿主机无需安装 Node;改动后 `docker compose up -d --build` 即可。
 
 ## 验证
 

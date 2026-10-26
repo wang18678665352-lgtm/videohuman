@@ -78,6 +78,13 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["vh_core", "vh_cli", "vh_server"]
 
+# ---------------------------------------------------------------- pytest
+# 测试不依赖 GPU/模型权重;轻量环境即可运行(依赖清单见 requirements-dev.txt)
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["ignore::DeprecationWarning"]
+
 # ---------------------------------------------------------------- ruff
 # 本仓库自有代码只包含 vh_core / vh_cli / vh_server / download_weights.py;
 # third_party/ 与 web/ 是 vendor 与前端产物,不参与检查。

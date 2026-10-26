@@ -92,7 +92,8 @@ class RewriteStage(Stage):
         s = ctx.settings
         # config.toml/env 里常带着引号书写,统一剥掉;不设 base_url 时 SDK 默认走官方地址
         base_url = s.llm_base_url.strip().strip("\"'") or None
-        client = OpenAI(api_key=key, base_url=base_url)
+        # 显式超时 + 有限重试:LLM 接口抖动不应让整条流水线卡死在这里
+        client = OpenAI(api_key=key, base_url=base_url, timeout=s.llm_timeout, max_retries=2)
         try:
             completion = client.chat.completions.create(
                 model=s.llm_model,
@@ -102,7 +103,9 @@ class RewriteStage(Stage):
                 ],
                 temperature=0.7,
             )
-            result = completion.choices[0].message.content.strip()
+            result = (completion.choices[0].message.content or "").strip()
+            if not result:
+                raise RuntimeError("LLM 返回空内容")
             logger.info(f"LLM 改写完成({s.llm_model}),{len(text)}字 → {len(result)}字")
             return result
         except Exception as e:

@@ -1,17 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import JobList from './views/JobList.vue'
-import JobNew from './views/JobNew.vue'
-import JobDetail from './views/JobDetail.vue'
-import Assets from './views/Assets.vue'
-import Login from './views/Login.vue'
 
+// 首页同步加载,其余页面按需加载,减小首屏包体
 export default createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', component: JobList },
-    { path: '/new', component: JobNew },
-    { path: '/jobs/:id', component: JobDetail, props: true },
-    { path: '/assets', component: Assets },
-    { path: '/login', component: Login },
+    { path: '/new', component: () => import('./views/JobNew.vue') },
+    { path: '/jobs/:id', component: () => import('./views/JobDetail.vue'), props: true },
+    { path: '/assets', component: () => import('./views/Assets.vue') },
+    { path: '/login', component: () => import('./views/Login.vue') },
+    { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import random
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -237,7 +238,7 @@ class PostprocessStage(Stage):
 
         pp = dict(ctx.params.get("postprocess", {}))
         cur = ctx.stage_dir / "step0_src.mp4"
-        cur.write_bytes(src.read_bytes())  # 统一在 stage_dir 内相对路径操作
+        shutil.copyfile(src, cur)  # 统一在 stage_dir 内相对路径操作(流式拷贝,不整片读进内存)
         silence_applied = False
 
         # 1. 静音切除 silence_cut(默认 True)
@@ -390,7 +391,7 @@ class PostprocessStage(Stage):
 
         final = ctx.stage_dir / "final.mp4"
         if cur.name != final.name:
-            final.write_bytes(cur.read_bytes())
+            shutil.copyfile(cur, final)
         outputs["final"] = final
         if (ctx.stage_dir / "sub.ass").exists():
             outputs["subtitle"] = ctx.stage_dir / "sub.ass"

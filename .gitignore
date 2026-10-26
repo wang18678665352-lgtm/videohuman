@@ -33,3 +33,6 @@ assets/bgm/*.mp3
 assets/background_images/*.jpg
 assets/background_images/*.png
 models/*/hf_cache/
+
+# ---- 服务端日志 ----
+logs/

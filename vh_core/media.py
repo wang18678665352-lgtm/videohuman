@@ -241,7 +241,7 @@ def cut_silence(
 
     if not silences:
         logger.info("未检测到可切除的静音段,原样保留")
-        output.write_bytes(video.read_bytes())
+        shutil.copyfile(video, output)
         return output
 
     # 保留段 [start, end):静音头尾各留 20ms,段间直接硬切
@@ -258,7 +258,7 @@ def cut_silence(
     streams = [_PtsTrim(combined, start=a, end=b) for a, b in keeps if b - a > 0.001]
     if not streams:
         logger.warning("静音切除后无有效保留段,原样保留")
-        output.write_bytes(video.read_bytes())
+        shutil.copyfile(video, output)
         return output
 
     concat = _Concat(*streams)
@@ -813,7 +813,7 @@ def process_video(
         bg_image = Path(bg_image).resolve()
 
     cur = out_dir / "step0_src.mp4"
-    cur.write_bytes(input_video.read_bytes())  # 统一在 out_dir 内相对路径操作
+    shutil.copyfile(input_video, cur)  # 统一在 out_dir 内相对路径操作
 
     # 字体:显式路径;给目录时从中挑一个可用字体
     font_file: Path | None = None
@@ -972,7 +972,7 @@ def process_video(
 
     final = out_dir / "final.mp4"
     if cur.name != final.name:
-        final.write_bytes(cur.read_bytes())
+        shutil.copyfile(cur, final)
     outputs["final"] = final
     if (out_dir / "sub.ass").exists():
         outputs["subtitle"] = out_dir / "sub.ass"

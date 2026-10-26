@@ -9,9 +9,9 @@ third_party/
 reuse/
 examples/
 web/node_modules/
-web/src/
-web/index.html
-web/vite.config.js
+web/dist/
+tests/
+logs/
 configs/cookies/
 docker/
 *.mp4

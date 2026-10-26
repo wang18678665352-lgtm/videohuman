@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com"
     llm_api_key: str = ""
     llm_model: str = "deepseek-chat"
+    llm_timeout: float = 120.0  # 单次请求超时(秒)
+
+    # Web 工作台(服务端)
+    web_token: str = ""  # 访问令牌,env VH_WEB_TOKEN;非本机监听时必须设置
+    cors_origins: str = ""  # 逗号分隔的跨域白名单;同源部署留空即可
+    max_upload_mb: int = 2048  # 单个素材上传上限
+    log_dir: Path = Path("logs")  # 服务端日志目录(按天滚动)
 
     # TTS 参考音频(默认 CosyVoice 仓库自带示例)
     tts_ref_audio: str = ""
@@ -93,6 +100,10 @@ class Settings(BaseSettings):
     @property
     def publish_cookies(self) -> Path:
         return self.abs_path(self.publish_cookies_dir)
+
+    @property
+    def logs(self) -> Path:
+        return self.abs_path(self.log_dir)
 
     @property
     def models(self) -> Path:
