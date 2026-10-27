@@ -6,9 +6,10 @@
     </div>
     <el-table :data="jobs" v-loading="loading" @row-click="(r) => $router.push(`/jobs/${r.job_id}`)" row-style="cursor:pointer">
       <el-table-column prop="job_id" label="任务 ID" min-width="160" />
-      <el-table-column label="模式" width="80">
+      <el-table-column label="模式" width="130">
         <template #default="{ row }">
-          <el-tag v-if="row.mode === 'clone'" type="warning" size="small">克隆</el-tag>
+          <el-tag v-if="row.workflow" type="primary" size="small" effect="plain">{{ row.workflow.title }}</el-tag>
+          <el-tag v-else-if="row.mode === 'clone'" type="warning" size="small">克隆</el-tag>
           <el-tag v-else-if="row.mode === 'audio'" type="success" size="small">音频</el-tag>
           <el-tag v-else-if="row.mode === 'text'" size="small">文案</el-tag>
           <span v-else>-</span>
@@ -23,7 +24,7 @@
       <el-table-column label="环节进度" min-width="220">
         <template #default="{ row }">
           <div class="stage-dots">
-            <el-tooltip v-for="s in stageNames" :key="s" :content="`${s}: ${row.stages[s] || 'pending'}`">
+            <el-tooltip v-for="s in row.stage_order || stageNames" :key="s" :content="`${s}: ${row.stages[s] || 'pending'}`">
               <span class="dot" :class="dotClass(row.stages[s])" />
             </el-tooltip>
           </div>
@@ -44,7 +45,7 @@
           <el-button v-if="isActive(row.status)" size="small" type="warning" plain
             :disabled="row.status === 'cancelling'" @click.stop="cancel(row)">取消</el-button>
           <el-button v-else size="small" @click.stop="rerun(row)">重跑</el-button>
-          <el-button size="small" type="success" @click.stop="openPublish(row)" :disabled="!row.has_final || isActive(row.status)">发布</el-button>
+          <el-button size="small" type="success" @click.stop="openPublish(row)" :disabled="!canPublish(row)">发布</el-button>
           <el-button size="small" type="danger" plain @click.stop="remove(row)" :disabled="isActive(row.status)">删除</el-button>
         </template>
       </el-table-column>
@@ -140,6 +141,9 @@ async function remove(row) {
   act(() => deleteJob(row.job_id), `已删除 ${row.job_id}`)
 }
 
+// 工作流任务需包含 publish 节点才能发布
+const canPublish = (row) => row.has_final && !isActive(row.status) && (row.stage_order || []).includes('publish')
+
 function openPublish(row) {
   publishJob.value = row
   publishForm.value = { platforms: ['douyin'], title: '', tags: '' }
@@ -155,7 +159,9 @@ async function doPublish() {
     if (publishForm.value.tags) {
       params.publish_tags = publishForm.value.tags.split(/[,，]/).map((t) => t.trim()).filter(Boolean)
     }
-    await runJob(publishJob.value.job_id, { only: 'publish', resume: true, params })
+    // 工作流任务的参数按节点下发
+    const body = publishJob.value.workflow ? { node_params: { publish: params } } : params
+    await runJob(publishJob.value.job_id, { only: 'publish', resume: true, params: body })
     ElMessage.success('发布任务已入队,抖音发布若弹验证请在浏览器中完成')
     publishDlg.value = false
     refresh()

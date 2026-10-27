@@ -43,6 +43,26 @@ export const runJob = (id, body) => http.post(`/jobs/${encodeURIComponent(id)}/r
 export const cancelJob = (id) => http.post(`/jobs/${encodeURIComponent(id)}/cancel`)
 export const deleteJob = (id) => http.delete(`/jobs/${encodeURIComponent(id)}`)
 export const loginDouyin = () => http.post('/login/douyin')
+
+// 工作流
+export const listSteps = () => http.get('/steps')
+export const listWorkflows = () => http.get('/workflows')
+export const getWorkflow = (id) => http.get(`/workflows/${encodeURIComponent(id)}`)
+export const saveWorkflow = (spec) => http.put(`/workflows/${encodeURIComponent(spec.id)}`, spec)
+export const deleteWorkflow = (id) => http.delete(`/workflows/${encodeURIComponent(id)}`)
+export const validateWorkflow = (spec) => http.post('/workflows/validate', spec)
+
+// 端口类型的显示名与颜色(编辑器连线、节点端口共用)
+export const KIND_META = {
+  text: { label: '文本', color: '#909399' },
+  audio: { label: '音频', color: '#e6a23c' },
+  video: { label: '视频', color: '#409eff' },
+  image: { label: '图片', color: '#67c23a' },
+  subtitle: { label: '字幕', color: '#b37feb' },
+  json: { label: '数据', color: '#606266' },
+}
+// 与后端 vh_core.pipeline.kinds_compatible 一致:视频可接到音频输入
+export const kindsCompatible = (src, dst) => src === dst || (dst === 'audio' && src === 'video')
 export const loginDouyinStatus = () => http.get('/login/douyin/status')
 
 export const fileUrl = (jobId, path) =>
