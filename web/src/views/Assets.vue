@@ -12,7 +12,9 @@
                 </el-table-column>
                 <el-table-column width="120">
                   <template #default="{ row }">
-                    <audio v-if="t.kind !== 'video'" :src="assetUrl(row)" controls style="height: 28px; width: 110px" />
+                    <audio v-if="t.kind === 'audio' || t.kind === 'bgm'" :src="assetUrl(row)" controls style="height: 28px; width: 110px" />
+                    <el-image v-else-if="t.kind === 'broll' && /\.(png|jpe?g|webp)$/i.test(row)" :src="assetUrl(row)"
+                      fit="cover" style="height: 40px; width: 72px" />
                   </template>
                 </el-table-column>
               </el-table>
@@ -69,8 +71,9 @@ const tabs = [
   { kind: 'audio', key: 'audios', label: '参考音频', accept: 'audio/*' },
   { kind: 'video', key: 'videos', label: '形象视频', accept: 'video/*' },
   { kind: 'bgm', key: 'bgms', label: 'BGM', accept: 'audio/*' },
+  { kind: 'broll', key: 'brolls', label: '混剪素材', accept: 'image/*,video/*' },
 ]
-const assets = reactive({ audios: [], videos: [], bgms: [] })
+const assets = reactive({ audios: [], videos: [], bgms: [], brolls: [] })
 const settings = reactive({})
 const loginState = reactive({ status: 'idle', error: null })
 let loginTimer = null
