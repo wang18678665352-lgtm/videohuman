@@ -47,5 +47,5 @@ function emitValue(v) {
 </script>
 
 <style scoped>
-.param-help { width: 100%; color: #909399; font-size: 12px; line-height: 1.5; margin-top: 2px; }
+.param-help { width: 100%; color: var(--vh-text-3); font-size: 12px; line-height: 1.5; margin-top: 2px; }
 </style>

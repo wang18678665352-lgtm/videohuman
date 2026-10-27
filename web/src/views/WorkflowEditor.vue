@@ -49,7 +49,7 @@
       </div>
 
       <!-- 右:属性面板 -->
-      <div class="panel">
+      <div class="side-panel">
         <template v-if="selected">
           <div class="panel-title">{{ selected.data.meta?.title }}</div>
           <div class="panel-desc">{{ selected.data.meta?.description }}</div>
@@ -337,29 +337,39 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.editor { display: flex; flex-direction: column; height: calc(100vh - 100px); }
-.toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.editor { display: flex; flex-direction: column; height: calc(100vh - 88px); }
+.toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px;
+  background: #fff; border: 1px solid var(--vh-border); border-radius: 12px; box-shadow: var(--vh-shadow);
+}
 .title-input { width: 260px; }
+.title-input :deep(.el-input__wrapper) { box-shadow: none; font-weight: 600; font-size: 15px; }
+.title-input :deep(.el-input__wrapper:hover), .title-input :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px var(--el-border-color) inset;
+}
 .spacer { flex: 1; }
-.errors { margin-bottom: 8px; }
-.main { flex: 1; display: flex; min-height: 0; border: 1px solid #e4e7ed; background: #fff; }
-.palette { width: 150px; border-right: 1px solid #e4e7ed; overflow-y: auto; padding: 8px; }
-.group-title { font-size: 12px; color: #909399; margin: 8px 0 4px; }
+.errors { margin-bottom: 12px; border-radius: 10px; }
+.main {
+  flex: 1; display: flex; min-height: 0; border: 1px solid var(--vh-border); background: #fff;
+  border-radius: 14px; overflow: hidden; box-shadow: var(--vh-shadow);
+}
+.palette { width: 168px; border-right: 1px solid var(--vh-border); overflow-y: auto; padding: 12px 10px; background: #fafbfd; }
+.group-title { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--vh-text-3); margin: 10px 4px 6px; }
 .palette-item {
-  padding: 6px 8px; margin-bottom: 4px; border: 1px solid #dcdfe6; border-radius: 4px;
-  font-size: 13px; cursor: grab; background: #fafafa; user-select: none;
+  padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--vh-border); border-radius: 8px;
+  font-size: 13px; cursor: grab; background: #fff; user-select: none; transition: all 0.15s;
 }
-.palette-item:hover { border-color: #409eff; color: #409eff; }
-.legend { margin-top: 16px; font-size: 12px; color: #606266; line-height: 1.9; }
+.palette-item:hover { border-color: var(--vh-primary); color: var(--vh-primary); box-shadow: 0 2px 8px rgba(91, 91, 240, 0.12); }
+.legend { margin: 16px 4px 0; font-size: 12px; color: var(--vh-text-2); line-height: 1.9; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
-.canvas { flex: 1; position: relative; min-width: 0; }
+.canvas { flex: 1; position: relative; min-width: 0; background: #f8f9fc; }
 .empty-hint {
-  position: absolute; top: 45%; left: 0; right: 0; text-align: center; color: #a8abb2;
-  pointer-events: none; font-size: 14px;
+  position: absolute; top: 45%; left: 0; right: 0; text-align: center; color: var(--vh-text-3);
+  pointer-events: none; font-size: 14px; padding: 0 24px;
 }
-.panel { width: 300px; border-left: 1px solid #e4e7ed; overflow-y: auto; padding: 12px; }
-.panel-title { font-weight: 600; margin-bottom: 4px; }
-.panel-desc { color: #909399; font-size: 12px; margin-bottom: 12px; line-height: 1.5; }
-.tips { color: #909399; font-size: 12px; line-height: 1.6; }
+.side-panel { width: 310px; border-left: 1px solid var(--vh-border); overflow-y: auto; padding: 16px; }
+.panel-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.panel-desc { color: var(--vh-text-3); font-size: 12px; margin-bottom: 14px; line-height: 1.6; }
+.tips { color: var(--vh-text-3); font-size: 12px; line-height: 1.7; background: #f7f8fb; border-radius: 10px; padding: 8px 12px; }
 .tips p { margin: 4px 0; }
 </style>

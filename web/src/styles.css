@@ -1,0 +1,139 @@
+/* 全局主题:覆盖 Element Plus 变量 + 通用页面骨架类(page-head / panel / muted 等) */
+
+:root {
+  --vh-primary: #5b5bf0;
+  --vh-primary-soft: #eef0ff;
+  --vh-accent: #a855f7;
+  --vh-bg: #f4f5fa;
+  --vh-surface: #ffffff;
+  --vh-border: #e8e9f1;
+  --vh-text: #1d1e2c;
+  --vh-text-2: #5b5f73;
+  --vh-text-3: #9a9db0;
+  --vh-sidebar: #12131f;
+  --vh-radius: 14px;
+  --vh-shadow: 0 1px 2px rgba(20, 22, 50, 0.04), 0 4px 16px rgba(20, 22, 50, 0.05);
+  --vh-shadow-hover: 0 2px 4px rgba(20, 22, 50, 0.05), 0 12px 32px rgba(20, 22, 50, 0.1);
+  --vh-font: 'Inter', 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', sans-serif;
+  --vh-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Element Plus 主题色 */
+  --el-color-primary: #5b5bf0;
+  --el-color-primary-light-3: #8c8cf5;
+  --el-color-primary-light-5: #adadf7;
+  --el-color-primary-light-7: #cdcdfa;
+  --el-color-primary-light-8: #dedefc;
+  --el-color-primary-light-9: #eef0ff;
+  --el-color-primary-dark-2: #4848c4;
+  --el-color-success: #16a34a;
+  --el-color-success-light-3: #5cbf80;
+  --el-color-success-light-5: #8bd1a4;
+  --el-color-success-light-7: #b9e3c9;
+  --el-color-success-light-8: #d0edda;
+  --el-color-success-light-9: #e8f6ed;
+  --el-color-success-dark-2: #12823b;
+  --el-color-warning: #f59e0b;
+  --el-color-danger: #ef4444;
+  --el-color-danger-light-3: #f47c7c;
+  --el-color-danger-light-5: #f7a2a2;
+  --el-color-danger-light-7: #fac7c7;
+  --el-color-danger-light-8: #fcdada;
+  --el-color-danger-light-9: #fdecec;
+  --el-color-danger-dark-2: #bf3636;
+  --el-font-family: var(--vh-font);
+  --el-text-color-primary: var(--vh-text);
+  --el-text-color-regular: var(--vh-text-2);
+  --el-text-color-secondary: var(--vh-text-3);
+  --el-border-color: #dfe1ea;
+  --el-border-color-light: var(--vh-border);
+  --el-border-color-lighter: #eef0f5;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-fill-color-light: #f6f7fb;
+  --el-fill-color-lighter: #fafbfd;
+  --el-component-size: 34px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--vh-bg);
+  color: var(--vh-text);
+  font-family: var(--vh-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { color: var(--vh-text); letter-spacing: -0.01em; }
+
+/* ---------- 页面骨架 ---------- */
+.page { max-width: 1280px; margin: 0 auto; }
+.page.narrow { max-width: 880px; }
+
+.page-head {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+  flex-wrap: wrap; margin-bottom: 24px;
+}
+.page-head h1 { margin: 0; font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+.page-head .sub { margin: 6px 0 0; color: var(--vh-text-2); font-size: 14px; line-height: 1.6; }
+.page-head .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.panel {
+  background: var(--vh-surface); border: 1px solid var(--vh-border); border-radius: var(--vh-radius);
+  box-shadow: var(--vh-shadow);
+}
+.panel + .panel { margin-top: 16px; }
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 16px 20px; border-bottom: 1px solid var(--vh-border);
+  font-weight: 600; font-size: 15px;
+}
+.panel-head .muted { font-weight: 400; }
+.panel-body { padding: 20px; }
+
+.muted { color: var(--vh-text-3); font-size: 13px; }
+.mono { font-family: var(--vh-mono); font-size: 12.5px; }
+.hint { color: var(--vh-text-3); font-size: 12px; line-height: 1.6; margin-top: 6px; }
+
+/* 状态胶囊:状态点 + 文本 */
+.status-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 500; line-height: 18px; white-space: nowrap;
+  background: #f1f2f6; color: var(--vh-text-2);
+}
+.status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.status-pill.success { background: #e8f6ed; color: #15803d; }
+.status-pill.danger { background: #fdecec; color: #dc2626; }
+.status-pill.primary { background: var(--vh-primary-soft); color: var(--vh-primary); }
+.status-pill.primary::before { animation: vh-pulse 1.2s ease-in-out infinite; }
+.status-pill.warning { background: #fef5e6; color: #d97706; }
+@keyframes vh-pulse { 50% { opacity: 0.25; } }
+
+/* ---------- Element Plus 细节微调 ---------- */
+.el-button { font-weight: 500; }
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link) {
+  background: linear-gradient(135deg, #6366f1 0%, #7c4dff 100%); border: none;
+  box-shadow: 0 4px 12px rgba(91, 91, 240, 0.25);
+}
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link):hover { filter: brightness(1.06); }
+.el-button--primary.is-disabled:not(.is-plain) { box-shadow: none; filter: grayscale(0.3); opacity: 0.55; }
+
+.el-table { --el-table-header-bg-color: #fafbfd; --el-table-row-hover-bg-color: #f7f7ff; font-size: 13.5px; }
+.el-table th.el-table__cell { font-weight: 600; color: var(--vh-text-2); font-size: 12.5px; }
+.el-table .el-table__cell { padding: 12px 0; }
+
+.el-dialog { border-radius: var(--vh-radius); }
+.el-tag { border-radius: 6px; }
+.el-input__wrapper, .el-textarea__inner, .el-select__wrapper { box-shadow: 0 0 0 1px var(--el-border-color) inset; }
+.el-form-item__label { font-weight: 500; }
+.el-collapse { border: none; --el-collapse-header-bg-color: transparent; --el-collapse-content-bg-color: transparent; }
+
+audio { max-width: 100%; }
+
+/* 小屏:表单标签放到上方 */
+@media (max-width: 768px) {
+  .page-head h1 { font-size: 20px; }
+  .el-form-item { flex-direction: column; align-items: stretch; }
+  .el-form-item__label { justify-content: flex-start !important; width: auto !important; }
+}

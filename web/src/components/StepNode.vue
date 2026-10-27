@@ -41,16 +41,16 @@ const kindLabel = (k) => KIND_META[k]?.label || k
 
 <style scoped>
 .step-node {
-  width: 190px; background: #fff; border: 1px solid #dcdfe6; border-radius: 6px;
-  font-size: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  width: 190px; background: #fff; border: 1px solid #e3e5ee; border-radius: 10px;
+  font-size: 12px; box-shadow: 0 2px 8px rgba(20, 22, 50, 0.08);
 }
-.step-node.selected { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.35); }
-.step-node.invalid { border-color: #f56c6c; }
-.head { color: #fff; padding: 6px 10px; border-radius: 5px 5px 0 0; display: flex; flex-direction: column; }
+.step-node.selected { border-color: #5b5bf0; box-shadow: 0 0 0 3px rgba(91, 91, 240, 0.25), 0 6px 16px rgba(20, 22, 50, 0.12); }
+.step-node.invalid { border-color: #ef4444; }
+.head { color: #fff; padding: 7px 11px; border-radius: 9px 9px 0 0; display: flex; flex-direction: column; }
 .name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .type { opacity: 0.85; font-size: 11px; }
 .body { padding: 4px 0; }
-.port { position: relative; padding: 3px 12px; color: #606266; }
+.port { position: relative; padding: 3px 12px; color: #5b5f73; }
 .port.out { text-align: right; }
 .req { color: #f56c6c; margin-left: 2px; }
 .handle { width: 10px; height: 10px; border: 2px solid #fff; }

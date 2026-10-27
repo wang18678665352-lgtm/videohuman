@@ -1,116 +1,147 @@
 <template>
-  <div style="max-width: 760px">
-    <h2>新建任务</h2>
-    <el-form :model="form" label-width="110px">
-      <el-form-item label="任务 ID">
-        <el-input v-model="form.job_id" placeholder="留空自动生成 job-时间戳" style="width: 320px" />
-      </el-form-item>
+  <div class="page narrow">
+    <div class="page-head">
+      <div>
+        <h1>新建数字人任务</h1>
+        <p class="sub">选一种内容来源,配好声音与形象,一键生成口播视频。</p>
+      </div>
+    </div>
 
-      <el-form-item label="内容来源">
-        <el-tabs v-model="mode" style="width: 100%">
-          <el-tab-pane label="直接对口型" name="audio">
-            <div style="margin-bottom: 12px">
-              <span style="display: inline-block; width: 80px; color: #606266">驱动音频</span>
-              <el-select v-model="form.audio" placeholder="选择已有音频(assets/)" style="width: 420px" filterable @change="onAudioSelect">
+    <el-form :model="form" label-width="104px" label-position="left">
+      <!-- 1. 内容来源 -->
+      <section class="panel">
+        <div class="panel-head"><span><b class="num">1</b>内容来源</span></div>
+        <div class="panel-body">
+          <div class="modes">
+            <div v-for="m in MODES" :key="m.value" class="mode" :class="{ active: mode === m.value }" @click="mode = m.value">
+              <div class="mode-icon"><el-icon :size="20"><component :is="m.icon" /></el-icon></div>
+              <div class="mode-title">{{ m.title }}</div>
+              <div class="mode-desc">{{ m.desc }}</div>
+            </div>
+          </div>
+
+          <template v-if="mode === 'audio'">
+            <el-form-item label="驱动音频">
+              <el-select v-model="form.audio" placeholder="选择已有音频(assets/)" filterable @change="onAudioSelect">
                 <el-option v-for="a in assets.audios" :key="a" :label="a" :value="a" />
               </el-select>
-            </div>
-            <div v-if="form.audio" style="margin-left: 80px; margin-bottom: 12px">
-              <audio :src="assetUrl(form.audio)" controls style="height: 36px; width: 420px"></audio>
-            </div>
-            <div style="display: flex; align-items: flex-start; margin-bottom: 8px">
-              <span style="display: inline-block; width: 80px; color: #606266; padding-top: 5px">字幕文案</span>
-              <div>
+              <audio v-if="form.audio" :src="assetUrl(form.audio)" controls class="preview-audio" />
+            </el-form-item>
+            <el-form-item label="字幕文案">
+              <div class="with-btn">
                 <el-input v-model="form.text" type="textarea" :rows="3"
-                  placeholder="【可选】字幕文案。留空则生成时自动从音频通过 ASR 识别或取同名 .txt" style="width: 420px" />
-                <el-button style="margin-left: 8px" :loading="audioAsrLoading" :disabled="!form.audio"
-                  @click="autoAudioText">识别文案</el-button>
+                  placeholder="【可选】字幕文案。留空则生成时自动从音频通过 ASR 识别或取同名 .txt" />
+                <el-button :loading="audioAsrLoading" :disabled="!form.audio" @click="autoAudioText">识别文案</el-button>
               </div>
+            </el-form-item>
+          </template>
+          <template v-else-if="mode === 'text'">
+            <el-form-item label="口播文案">
+              <el-input v-model="form.text" type="textarea" :rows="6"
+                placeholder="直接输入口播文案(跳过下载/转写/改写前的环节,rewrite 直通或 LLM 改写)" />
+              <div class="hint" v-if="textEstimate">
+                文案约 {{ textEstimate.chars }} 字 → 预计音频约 {{ textEstimate.seconds }} 秒,视频时长跟随音频
+              </div>
+            </el-form-item>
+          </template>
+          <template v-else>
+            <el-form-item label="抖音链接">
+              <el-input v-model="form.share_url" :prefix-icon="Link"
+                placeholder="如 https://www.douyin.com/jingxuan?modal_id=..." />
+            </el-form-item>
+          </template>
+        </div>
+      </section>
+
+      <!-- 2. 声音 -->
+      <section class="panel" v-if="mode !== 'audio'">
+        <div class="panel-head"><span><b class="num">2</b>声音克隆</span></div>
+        <div class="panel-body">
+          <el-form-item label="TTS 引擎">
+            <el-radio-group v-model="form.tts_engine">
+              <el-radio-button value="indextts2">IndexTTS-2 · 推荐</el-radio-button>
+              <el-radio-button value="cosyvoice3">CosyVoice3</el-radio-button>
+            </el-radio-group>
+            <div class="hint">IndexTTS-2 情感表达与时长控制更稳定</div>
+          </el-form-item>
+          <el-form-item label="参考音频">
+            <el-select v-model="form.ref_audio" placeholder="选择音色参考(assets/)" filterable @change="autoRefText">
+              <el-option v-for="a in assets.audios" :key="a" :label="a" :value="a" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="参考音文本">
+            <div class="with-btn">
+              <el-input v-model="form.ref_text" type="textarea" :rows="2"
+                placeholder="参考音频里说的原文;留空则生成时自动识别" />
+              <el-button :loading="refTextLoading" :disabled="!form.ref_audio" @click="autoRefText(true)">自动识别</el-button>
             </div>
-            <div class="hint" style="margin-left: 80px">已有录制好的语音，跳过 TTS 语音生成，直接使用原声驱动数字人对口型。</div>
-          </el-tab-pane>
-          <el-tab-pane label="文案直给" name="text">
-            <el-input v-model="form.text" type="textarea" :rows="5"
-              placeholder="直接输入口播文案(跳过下载/转写/改写前的环节,rewrite 直通或 LLM 改写)" />
-            <div class="hint" v-if="textEstimate">文案约 {{ textEstimate.chars }} 字 → 预计音频约 {{ textEstimate.seconds }} 秒,视频时长跟随音频</div>
-          </el-tab-pane>
-          <el-tab-pane label="抖音克隆" name="clone">
-            <el-input v-model="form.share_url"
-              placeholder="抖音链接,如 https://www.douyin.com/jingxuan?modal_id=..." />
-            <div class="hint">将下载原片 → 转写文案 → 改写,再用你的声音与形象重新生成</div>
-          </el-tab-pane>
-        </el-tabs>
-      </el-form-item>
+          </el-form-item>
+        </div>
+      </section>
 
-      <template v-if="mode !== 'audio'">
-        <el-form-item label="TTS 引擎">
-          <el-radio-group v-model="form.tts_engine">
-            <el-radio value="indextts2">IndexTTS-2(情感表达与时长控制, 稳定推荐)</el-radio>
-            <el-radio value="cosyvoice3">CosyVoice3</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="参考音频">
-          <el-select v-model="form.ref_audio" placeholder="选择音色参考(assets/)" style="width: 420px"
-            @change="autoRefText">
-            <el-option v-for="a in assets.audios" :key="a" :label="a" :value="a" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="参考音文本">
-          <el-input v-model="form.ref_text" type="textarea" :rows="2"
-            placeholder="参考音频里说的原文;留空则生成时自动识别" style="width: 420px" />
-          <el-button style="margin-left: 8px" :loading="refTextLoading" :disabled="!form.ref_audio"
-            @click="autoRefText(true)">自动识别</el-button>
-        </el-form-item>
-      </template>
+      <!-- 3. 形象 -->
+      <section class="panel">
+        <div class="panel-head"><span><b class="num">{{ mode === 'audio' ? 2 : 3 }}</b>数字人形象</span></div>
+        <div class="panel-body">
+          <el-form-item label="数字人引擎">
+            <el-radio-group v-model="form.avatar_engine">
+              <el-radio-button value="musetalk">MuseTalk · 默认</el-radio-button>
+              <el-radio-button value="lstmsync">LstmSync</el-radio-button>
+            </el-radio-group>
+            <div class="hint" v-if="form.avatar_engine === 'lstmsync'">需自备引擎,嘴部质量更好</div>
+          </el-form-item>
+          <el-form-item label="形象视频">
+            <el-select v-model="form.avatar_video" placeholder="选择数字人素材(assets/)" filterable>
+              <el-option v-for="v in assets.videos" :key="v" :label="v" :value="v" />
+            </el-select>
+            <video v-if="form.avatar_video" :key="form.avatar_video" :src="assetUrl(form.avatar_video)"
+              class="preview-video" muted controls preload="metadata" />
+          </el-form-item>
+        </div>
+      </section>
 
-      <el-form-item label="数字人引擎">
-        <el-radio-group v-model="form.avatar_engine">
-          <el-radio value="musetalk">musetalk(默认)</el-radio>
-          <el-radio value="lstmsync">lstmsync(需自备引擎,嘴部质量更好)</el-radio>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item label="形象视频">
-        <el-select v-model="form.avatar_video" placeholder="选择数字人素材(assets/)" style="width: 420px">
-          <el-option v-for="v in assets.videos" :key="v" :label="v" :value="v" />
-        </el-select>
-      </el-form-item>
-
-      <el-form-item label="发布">
-        <el-checkbox-group v-model="form.publish_platforms">
-          <el-checkbox value="douyin">抖音</el-checkbox>
-          <el-checkbox value="bilibili">B站</el-checkbox>
-        </el-checkbox-group>
-      </el-form-item>
-      <template v-if="form.publish_platforms.length">
-        <el-form-item label="发布标题">
-          <el-input v-model="form.publish_title" placeholder="留空取文案首句" style="width: 420px" />
-        </el-form-item>
-        <el-form-item label="发布标签">
-          <el-input v-model="form.publish_tags" placeholder="逗号分隔,可留空" style="width: 420px" />
-        </el-form-item>
-      </template>
-
-      <el-form-item label="后期开关">
-        <el-collapse style="width: 100%">
-          <el-collapse-item title="postprocess 六步(默认与内核一致,一般不用动)" name="pp">
-            <el-checkbox v-model="pp.silence_cut">静音切除</el-checkbox>
-            <el-checkbox v-model="pp.bg_image">背景图合成</el-checkbox>
-            <el-checkbox v-model="pp.subtitle">字幕烧录</el-checkbox>
-            <el-checkbox v-model="pp.bgm">BGM 混音</el-checkbox>
-            <el-checkbox v-model="pp.cover">封面生成</el-checkbox>
-            <div style="margin-top: 8px">
-              <el-checkbox v-model="watermarkOn">文字水印</el-checkbox>
-              <el-input v-if="watermarkOn" v-model="pp.watermark_text" placeholder="水印文字"
-                style="width: 240px; margin-left: 12px" />
+      <!-- 4. 后期与发布 -->
+      <section class="panel">
+        <div class="panel-head"><span><b class="num">{{ mode === 'audio' ? 3 : 4 }}</b>后期与发布</span></div>
+        <div class="panel-body">
+          <el-form-item label="后期处理">
+            <div class="chips">
+              <el-checkbox v-model="pp.silence_cut" border>静音切除</el-checkbox>
+              <el-checkbox v-model="pp.subtitle" border>字幕烧录</el-checkbox>
+              <el-checkbox v-model="pp.bgm" border>BGM 混音</el-checkbox>
+              <el-checkbox v-model="pp.cover" border>封面生成</el-checkbox>
+              <el-checkbox v-model="pp.bg_image" border>背景图合成</el-checkbox>
+              <el-checkbox v-model="watermarkOn" border>文字水印</el-checkbox>
             </div>
-          </el-collapse-item>
-        </el-collapse>
-      </el-form-item>
+            <el-input v-if="watermarkOn" v-model="pp.watermark_text" placeholder="水印文字" class="wm-input" />
+            <div class="hint">默认与内核一致,一般不用动</div>
+          </el-form-item>
+          <el-form-item label="发布到">
+            <el-checkbox-group v-model="form.publish_platforms">
+              <el-checkbox value="douyin">抖音</el-checkbox>
+              <el-checkbox value="bilibili">B站</el-checkbox>
+            </el-checkbox-group>
+          </el-form-item>
+          <template v-if="form.publish_platforms.length">
+            <el-form-item label="发布标题">
+              <el-input v-model="form.publish_title" placeholder="留空取文案首句" />
+            </el-form-item>
+            <el-form-item label="发布标签">
+              <el-input v-model="form.publish_tags" placeholder="逗号分隔,可留空" />
+            </el-form-item>
+          </template>
+          <el-form-item label="任务 ID">
+            <el-input v-model="form.job_id" placeholder="留空自动生成 job-时间戳" />
+          </el-form-item>
+        </div>
+      </section>
 
-      <el-form-item>
-        <el-button type="primary" :loading="submitting" @click="submit">创建并执行</el-button>
-        <el-button @click="$router.push('/')">返回</el-button>
-      </el-form-item>
+      <div class="submit-bar">
+        <el-button size="large" @click="$router.push('/')">返回</el-button>
+        <el-button type="primary" size="large" :loading="submitting" @click="submit">
+          <el-icon><VideoPlay /></el-icon><span>创建并执行</span>
+        </el-button>
+      </div>
     </el-form>
   </div>
 </template>
@@ -119,9 +150,15 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Link, Microphone, Document, VideoPlay } from '@element-plus/icons-vue'
 import { assetUrl, createJob, getAssetRefText, getAssets, getSettings } from '../api.js'
 
 const router = useRouter()
+const MODES = [
+  { value: 'audio', title: '直接对口型', desc: '已有录好的语音,跳过 TTS 直接驱动数字人', icon: Microphone },
+  { value: 'text', title: '文案直给', desc: '输入口播文案,用克隆声音合成后生成视频', icon: Document },
+  { value: 'clone', title: '抖音克隆', desc: '下载原片 → 转写 → 改写,用你的声音与形象重做', icon: Link },
+]
 const mode = ref('audio')
 const submitting = ref(false)
 const assets = reactive({ audios: [], videos: [], bgms: [] })
@@ -153,7 +190,7 @@ async function autoAudioText() {
     form.text = r.text
     ElMessage.success(r.source === 'sidecar' ? '已读取同名文本' : '识别完成')
   } catch (e) {
-    if (force) ElMessage.error(e.message)
+    ElMessage.error(e.message)
   } finally {
     audioAsrLoading.value = false
   }
@@ -260,5 +297,47 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.hint { color: #909399; font-size: 12px; margin-top: 4px; }
+section.panel { margin-bottom: 16px; }
+section.panel + section.panel { margin-top: 0; }
+.num {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 10px; border-radius: 7px;
+  background: var(--vh-primary-soft); color: var(--vh-primary); font-size: 12px;
+}
+.panel-body :deep(.el-form-item:last-child) { margin-bottom: 0; }
+.panel-body :deep(.el-select) { width: 100%; }
+
+.modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 22px; }
+.mode {
+  padding: 16px; border: 1.5px solid var(--vh-border); border-radius: 12px; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.mode:hover { border-color: var(--el-color-primary-light-5); }
+.mode.active { border-color: var(--vh-primary); background: #f8f8ff; box-shadow: 0 0 0 3px var(--vh-primary-soft); }
+.mode-icon {
+  width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 10px;
+  background: #f1f2f6; color: var(--vh-text-2);
+}
+.mode.active .mode-icon { background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; }
+.mode-title { font-weight: 600; font-size: 14.5px; }
+.mode-desc { color: var(--vh-text-3); font-size: 12px; margin-top: 4px; line-height: 1.55; }
+
+.with-btn { display: flex; gap: 10px; width: 100%; align-items: flex-start; }
+.with-btn .el-textarea { flex: 1; }
+.preview-audio { width: 100%; height: 40px; margin-top: 10px; }
+.preview-video { margin-top: 10px; max-width: 280px; max-height: 200px; border-radius: 10px; background: #000; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips .el-checkbox { margin-right: 0; }
+.wm-input { margin-top: 10px; max-width: 280px; }
+.hint { width: 100%; }
+
+.submit-bar {
+  position: sticky; bottom: 0; z-index: 5; display: flex; justify-content: flex-end; gap: 10px;
+  padding: 16px 0; background: linear-gradient(to top, var(--vh-bg) 70%, transparent);
+}
+.submit-bar .el-button span { margin-left: 6px; }
+
+@media (max-width: 768px) {
+  .modes { grid-template-columns: 1fr; }
+  .with-btn { flex-direction: column; }
+}
 </style>
