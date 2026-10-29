@@ -17,7 +17,7 @@ from pathlib import Path
 import requests
 from loguru import logger
 
-from ..pipeline import Stage, StageContext
+from ..pipeline import Param, Port, Stage, StageContext
 
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -164,6 +164,11 @@ def download_file(url: str, out_path: Path) -> Path:
 
 class DownloadStage(Stage):
     name = "download"
+    title = "抖音下载"
+    category = "输入"
+    description = "按分享链接下载抖音视频(需 vh login douyin 登录态)"
+    outputs = {"video": Port("video", "视频"), "meta": Port("json", "元信息")}
+    params = (Param("share_url", "抖音分享链接", "string"),)
 
     def enabled(self, ctx: StageContext) -> bool:
         return bool(ctx.params.get("share_url"))

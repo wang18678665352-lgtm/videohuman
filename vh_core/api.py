@@ -2,6 +2,8 @@
 
 - spec 文件(TOML/JSON)驱动单 job:vh run --spec job.toml
 - batch 文件驱动批量:vh batch --file batch.toml(模型跨 job 驻留、失败隔离)
+- 工作流:spec 的 params 里给 workflow(模板 id / JSON 路径 / 内联 dict)与
+  node_params({节点 id: {参数: 值}}),即按工作流执行(见 vh_core.workflow)
 - Python 直接调用:
       from vh_core.api import run_job, run_batch, load_spec
       manifest = run_job(load_spec("job.toml"))
@@ -85,6 +87,12 @@ def run_job(
     should_cancel: Callable[[], bool] | None = None,
 ) -> JobManifest:
     settings = settings or load_settings()
+    if spec.params.get("workflow"):
+        from . import workflow as wf
+
+        wf_spec = wf.resolve_job_workflow(settings, settings.workspace / spec.job_id, spec.params["workflow"])
+        pipeline = wf.build_pipeline(wf_spec, settings, spec.params.get("node_params"))
+        return pipeline.run(spec.job_id, only=only, resume=resume, should_cancel=should_cancel)
     pipeline = pipeline or build_pipeline(settings)
     return pipeline.run(spec.job_id, params=spec.params, only=only, resume=resume, should_cancel=should_cancel)
 

@@ -10,18 +10,24 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..pipeline import Stage, StageContext
+from ..pipeline import Port, Stage, StageContext
 from ..providers import get_provider
 
 
 class TranscribeStage(Stage):
     name = "transcribe"
+    title = "语音转写"
+    category = "文本"
+    description = "SenseVoice 识别音频/视频中的语音,输出文案与词级时间戳"
+    inputs = {"audio": Port("audio", "音频/视频", required=True)}
+    outputs = {"transcript": Port("text", "文案"), "transcript_json": Port("json", "带时间戳结果")}
 
     def _input_audio(self, ctx: StageContext) -> Path | None:
+        if "audio" in ctx.inputs:
+            return ctx.inputs["audio"]
         if ctx.params.get("transcribe_audio"):
-            return Path(ctx.params["transcribe_audio"])
-        src = ctx.job_dir / "download" / "source.mp4"
-        return src if src.exists() else None
+            return ctx.settings.abs_path(Path(ctx.params["transcribe_audio"]))
+        return ctx.input("audio", "download/source.mp4")
 
     def enabled(self, ctx: StageContext) -> bool:
         return self._input_audio(ctx) is not None

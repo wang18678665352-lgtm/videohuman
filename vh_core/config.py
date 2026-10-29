@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -43,6 +44,11 @@ class Settings(BaseSettings):
     # AI 生成内容标识(合规):画面角标文字 + 隐式元数据里的内容制作者名称
     aigc_label_text: str = "本视频由AI生成"
     aigc_producer: str = "videohuman"
+    # 商用模式下禁止关闭画面 AI 生成角标。环境变量 VH_COMMERCIAL。
+    commercial_mode: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("VH_COMMERCIAL", "VH_COMMERCIAL_MODE", "commercial_mode"),
+    )
 
     # LLM 改写提示词文件(空=内置合规版:润色/纠错,忠于原意);详见 stages/rewrite.py
     llm_prompt_file: str = ""
@@ -52,6 +58,7 @@ class Settings(BaseSettings):
     cors_origins: str = ""  # 逗号分隔的跨域白名单;同源部署留空即可
     max_upload_mb: int = 2048  # 单个素材上传上限
     log_dir: Path = Path("logs")  # 服务端日志目录(按天滚动)
+    workflows_dir: Path = Path("configs/workflows")  # 用户自定义工作流(JSON)
 
     # TTS 参考音频(默认 CosyVoice 仓库自带示例)
     tts_ref_audio: str = ""

@@ -1,0 +1,134 @@
+{
+  "id": "broll_voiceover",
+  "title": "配音混剪(不出人)",
+  "description": "文案 → 润色 → 配音 → 按句轮换素材库图片/视频 → 字幕/BGM/AI 标识,适合知识、资讯、带货类账号",
+  "nodes": [
+    {
+      "id": "script",
+      "type": "input_text",
+      "params": {
+        "text": ""
+      },
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "title": "口播文案"
+    },
+    {
+      "id": "polish",
+      "type": "rewrite",
+      "params": {},
+      "position": {
+        "x": 300,
+        "y": 0
+      },
+      "title": "文案润色"
+    },
+    {
+      "id": "voice",
+      "type": "tts",
+      "params": {},
+      "position": {
+        "x": 600,
+        "y": 0
+      },
+      "title": "配音"
+    },
+    {
+      "id": "montage",
+      "type": "broll",
+      "params": {},
+      "position": {
+        "x": 900,
+        "y": 120
+      },
+      "title": "素材混剪"
+    },
+    {
+      "id": "post",
+      "type": "postprocess",
+      "params": {
+        "postprocess.silence_cut": false
+      },
+      "position": {
+        "x": 1200,
+        "y": 0
+      },
+      "title": "后期包装"
+    },
+    {
+      "id": "publish",
+      "type": "publish",
+      "params": {},
+      "position": {
+        "x": 1500,
+        "y": 0
+      },
+      "title": "发布"
+    }
+  ],
+  "edges": [
+    {
+      "source": "script",
+      "sourceHandle": "text",
+      "target": "polish",
+      "targetHandle": "text"
+    },
+    {
+      "source": "polish",
+      "sourceHandle": "text",
+      "target": "voice",
+      "targetHandle": "text"
+    },
+    {
+      "source": "voice",
+      "sourceHandle": "speech",
+      "target": "montage",
+      "targetHandle": "audio"
+    },
+    {
+      "source": "polish",
+      "sourceHandle": "text",
+      "target": "montage",
+      "targetHandle": "text"
+    },
+    {
+      "source": "montage",
+      "sourceHandle": "video",
+      "target": "post",
+      "targetHandle": "video"
+    },
+    {
+      "source": "polish",
+      "sourceHandle": "text",
+      "target": "post",
+      "targetHandle": "text"
+    },
+    {
+      "source": "voice",
+      "sourceHandle": "speech",
+      "target": "post",
+      "targetHandle": "speech"
+    },
+    {
+      "source": "post",
+      "sourceHandle": "final",
+      "target": "publish",
+      "targetHandle": "video"
+    },
+    {
+      "source": "post",
+      "sourceHandle": "cover",
+      "target": "publish",
+      "targetHandle": "cover"
+    },
+    {
+      "source": "polish",
+      "sourceHandle": "text",
+      "target": "publish",
+      "targetHandle": "text"
+    }
+  ],
+  "final": "post.final"
+}

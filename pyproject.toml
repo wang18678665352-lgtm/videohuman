@@ -125,6 +125,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # typer 用 OptionInfo 作为默认值生成 CLI 帮助,docstring 动态拼接同理
 "vh_cli/main.py" = ["B008", "B021"]
+# stage 的 inputs/outputs 端口表是只读类常量(工作流元数据),逐个标 ClassVar 无收益
+"vh_core/stages/*.py" = ["RUF012"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["vh_core", "vh_cli", "vh_server"]

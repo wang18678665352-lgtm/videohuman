@@ -71,6 +71,39 @@ LLM 改写需要配置 API Key(默认 DeepSeek 兼容接口):设置环境变量
 发布功能需要各平台登录态:抖音用 `uv run vh login` 扫码;B 站用 biliup 登录 JSON,
 均放在 `configs/cookies/`(已在 .gitignore 中)。
 
+## 工作流:自由编排生产流程
+
+除经典数字人流水线外,所有步骤都可以在工作台「工作流」页**拖拽连线**自由组合:节点有类型化的
+输入/输出端口(文本/音频/视频/图片/字幕),类型不符的连线会被拒绝;保存前服务端再做完整校验
+(必需输入、环路、单输入单连线)。
+
+**内置模板**(`vh_core/workflows/`,只读,可另存后修改):
+
+| 模板 | 流程 | GPU |
+|---|---|---|
+| `digital_human` 数字人口播 | 文案 → 润色 → 配音 → 数字人对口型 → 后期 → 发布 | 需要 |
+| `broll_voiceover` 配音混剪(不出人) | 文案 → 润色 → 配音 → 按句轮换素材库图片/视频 → 后期 → 发布 | 仅 TTS |
+| `video_translate` 视频翻译(对口型) | 识别原文 → 翻译 → 截取原声作参考音色 → 克隆配音 → 对齐时长 → 口型同步 → 目标语言字幕 | 需要 |
+| `video_dub` 视频翻译(仅配音) | 同上,但直接替换音轨,不改画面 | 仅 ASR/TTS |
+
+**可用步骤**:文案/视频/音频输入、抖音下载、语音转写、文案润色、文案翻译、语音合成、提取音频、
+配音对齐时长、数字人口型同步、素材混剪、替换音轨、后期包装、多平台发布(`vh steps` 查看端口与参数)。
+
+- 混剪素材放 `assets/broll/`(工作台「素材与设置」可上传),图片会缓慢推近,视频裁成画布比例;
+- 翻译需配置 LLM(`VH_LLM_API_KEY`);翻译失败不会回退原文;
+- 自定义工作流保存在 `configs/workflows/*.json`;每个任务运行时写入 `workspace/{job_id}/workflow.json`
+  快照,之后修改工作流不影响已有任务续跑。
+
+```bash
+uv run vh workflows list                       # 列出模板与自定义工作流
+uv run vh workflows show video_dub             # 查看节点、连线与必填参数
+uv run vh run --job-id t1 -w broll_voiceover -s script.text="今天聊聊……"
+uv run vh run --job-id t2 -w video_dub -s source.path=assets/talk.mp4 -s trans.target_lang=日语
+```
+
+工作流任务的单节点重跑用工作台详情页或 `POST /api/jobs/{id}/run {"only": "节点id"}`;
+`vh tts` 等经典单步命令只适用于经典流水线任务。
+
 ## 合规内置项
 
 - **AI 生成标识**:成片默认在画面左上角加"本视频由AI生成"角标(显式标识),并在 MP4 元数据写入
@@ -120,8 +153,10 @@ uv run vh --version
 |---|---|---|
 | GET | `/api/health` | 探活(免鉴权),含队列状态 |
 | GET | `/api/settings` | 引擎/平台/登录态等配置 |
-| GET/POST | `/api/assets` | 素材列表 / 上传(`?kind=audio\|video\|bgm`) |
-| GET/POST | `/api/jobs` | 任务列表(`?status=&limit=&offset=`)/ 新建任务 |
+| GET/POST | `/api/assets` | 素材列表 / 上传(`?kind=audio\|video\|bgm\|broll&consent=true`) |
+| GET | `/api/steps` | 工作流可用步骤(端口/参数描述) |
+| GET/PUT/DELETE | `/api/workflows[/{id}]` | 工作流列表 / 读取 / 保存 / 删除;`POST /api/workflows/validate` 校验 |
+| GET/POST | `/api/jobs` | 任务列表(`?status=&limit=&offset=`)/ 新建任务(经典参数,或 `workflow` + `node_params`) |
 | GET/DELETE | `/api/jobs/{id}` | 任务详情 / 删除任务 |
 | POST | `/api/jobs/{id}/run` | 续跑、单环节重跑(`only`)、全部重跑(`resume=false`) |
 | POST | `/api/jobs/{id}/cancel` | 取消任务 |

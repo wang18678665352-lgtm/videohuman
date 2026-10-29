@@ -1,0 +1,172 @@
+{
+  "id": "video_translate",
+  "title": "视频翻译(对口型)",
+  "description": "识别原视频语音 → 翻译 → 用原声音色配音 → 对齐时长 → 口型同步 → 目标语言字幕。适合出镜口播类视频出海",
+  "nodes": [
+    {
+      "id": "source",
+      "type": "input_video",
+      "params": {
+        "path": ""
+      },
+      "position": {
+        "x": 0,
+        "y": 120
+      },
+      "title": "原视频"
+    },
+    {
+      "id": "asr",
+      "type": "transcribe",
+      "params": {},
+      "position": {
+        "x": 300,
+        "y": 0
+      },
+      "title": "识别原文"
+    },
+    {
+      "id": "trans",
+      "type": "translate",
+      "params": {
+        "target_lang": "英语"
+      },
+      "position": {
+        "x": 600,
+        "y": 0
+      },
+      "title": "翻译"
+    },
+    {
+      "id": "ref",
+      "type": "extract_audio",
+      "params": {
+        "start": 0,
+        "duration": 12
+      },
+      "position": {
+        "x": 300,
+        "y": 260
+      },
+      "title": "截取原声音色"
+    },
+    {
+      "id": "voice",
+      "type": "tts",
+      "params": {},
+      "position": {
+        "x": 900,
+        "y": 120
+      },
+      "title": "克隆原声配音"
+    },
+    {
+      "id": "fit",
+      "type": "fit_audio",
+      "params": {},
+      "position": {
+        "x": 1200,
+        "y": 120
+      },
+      "title": "对齐原视频时长"
+    },
+    {
+      "id": "lipsync",
+      "type": "avatar",
+      "params": {},
+      "position": {
+        "x": 1500,
+        "y": 120
+      },
+      "title": "口型同步"
+    },
+    {
+      "id": "post",
+      "type": "postprocess",
+      "params": {
+        "postprocess.silence_cut": false,
+        "postprocess.bgm": false
+      },
+      "position": {
+        "x": 1800,
+        "y": 120
+      },
+      "title": "后期包装"
+    }
+  ],
+  "edges": [
+    {
+      "source": "source",
+      "sourceHandle": "video",
+      "target": "asr",
+      "targetHandle": "audio"
+    },
+    {
+      "source": "asr",
+      "sourceHandle": "transcript",
+      "target": "trans",
+      "targetHandle": "text"
+    },
+    {
+      "source": "source",
+      "sourceHandle": "video",
+      "target": "ref",
+      "targetHandle": "media"
+    },
+    {
+      "source": "trans",
+      "sourceHandle": "text",
+      "target": "voice",
+      "targetHandle": "text"
+    },
+    {
+      "source": "ref",
+      "sourceHandle": "audio",
+      "target": "voice",
+      "targetHandle": "ref_audio"
+    },
+    {
+      "source": "voice",
+      "sourceHandle": "speech",
+      "target": "fit",
+      "targetHandle": "audio"
+    },
+    {
+      "source": "source",
+      "sourceHandle": "video",
+      "target": "fit",
+      "targetHandle": "reference"
+    },
+    {
+      "source": "fit",
+      "sourceHandle": "audio",
+      "target": "lipsync",
+      "targetHandle": "audio"
+    },
+    {
+      "source": "source",
+      "sourceHandle": "video",
+      "target": "lipsync",
+      "targetHandle": "video"
+    },
+    {
+      "source": "lipsync",
+      "sourceHandle": "avatar",
+      "target": "post",
+      "targetHandle": "video"
+    },
+    {
+      "source": "trans",
+      "sourceHandle": "text",
+      "target": "post",
+      "targetHandle": "text"
+    },
+    {
+      "source": "fit",
+      "sourceHandle": "audio",
+      "target": "post",
+      "targetHandle": "speech"
+    }
+  ],
+  "final": "post.final"
+}
