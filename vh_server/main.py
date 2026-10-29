@@ -290,6 +290,7 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
             "stage_names": list(STAGE_NAMES),
             "max_upload_mb": settings.max_upload_mb,
             "consent_statements": CONSENT_STATEMENTS,
+            "commercial_mode": bool(settings.commercial_mode),
         }
 
     # ------------------------------------------------------------ 素材
@@ -659,6 +660,12 @@ def create_app(settings: Settings | None = None, runner: Runner | None = None) -
     @app.get("/api/login/douyin/status")
     def login_douyin_status() -> dict[str, Any]:
         return {**login_state, "cookie_exists": (settings.publish_cookies / "douyin.json").exists()}
+
+    # ------------------------------------------------------------ 工作室
+
+    from .studio_routes import mount_studio
+
+    mount_studio(app, settings, queue)
 
     # ------------------------------------------------------------ 前端静态托管
 

@@ -33,6 +33,8 @@ const withToken = (url) => {
 }
 
 export const getSettings = () => http.get('/settings')
+export const getReadiness = () => http.get('/readiness')
+export const getUsage = () => http.get('/usage')
 export const getAssets = () => http.get('/assets')
 export const getAssetRefText = (path) =>
   http.get('/asset-ref-text', { params: { path }, timeout: 120000 })
@@ -67,6 +69,11 @@ export const loginDouyinStatus = () => http.get('/login/douyin/status')
 
 export const fileUrl = (jobId, path) =>
   withToken(`/api/jobs/${encodeURIComponent(jobId)}/file?path=${encodeURIComponent(path)}`)
+
+export const deliveryUrl = (jobId) =>
+  withToken(`/api/jobs/${encodeURIComponent(jobId)}/delivery`)
+
+export const consentUrl = () => withToken('/api/consent')
 
 export const assetUrl = (path) =>
   withToken(`/api/asset-file?path=${encodeURIComponent(path)}`)

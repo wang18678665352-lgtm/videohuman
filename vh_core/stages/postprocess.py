@@ -474,6 +474,8 @@ class PostprocessStage(Stage):
             except Exception as e:
                 raise RuntimeError(f"AI 生成标识添加失败(检查 assets/font 是否有中文字体): {e}") from e
             cur = nxt
+        elif ctx.settings.commercial_mode:
+            raise ValueError("商用模式不允许关闭 AI 生成角标")
         else:
             logger.warning("已关闭画面 AI 生成标识(ai_label=False):发布前请确认符合平台与法规的标识要求")
 

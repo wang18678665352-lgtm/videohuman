@@ -3,13 +3,28 @@
     <div class="page-head">
       <div>
         <h1>任务中心</h1>
-        <p class="sub">查看所有生成任务的进度与成片,失败的任务可以从中断处续跑。</p>
+        <p v-if="commercialMode" class="sub">商用模式：成片必带 AI 生成角标，授权记录可导出。</p>
+        <p v-else class="sub">查看所有生成任务的进度与成片,失败的任务可以从中断处续跑。</p>
       </div>
       <div class="actions">
         <el-button @click="$router.push('/workflows')"><el-icon><Share /></el-icon><span>从工作流创建</span></el-button>
         <el-button type="primary" @click="$router.push('/new')"><el-icon><Plus /></el-icon><span>新建任务</span></el-button>
       </div>
     </div>
+
+    <el-alert
+      v-if="failedRequired.length"
+      type="warning"
+      show-icon
+      :closable="false"
+      class="ready-banner"
+      title="还不能出片"
+    >
+      <div v-for="action in failedActions" :key="action">{{ action }}</div>
+    </el-alert>
+    <p v-else-if="readiness?.ok" class="ready-ok">
+      <span class="status-pill success">机器已就绪，可以出片</span>
+    </p>
 
     <div class="stats">
       <div v-for="c in statCards" :key="c.label" class="stat panel">
@@ -37,7 +52,12 @@
           <div class="empty">
             <el-icon :size="40"><VideoCamera /></el-icon>
             <p>{{ jobs.length ? '没有符合筛选条件的任务' : '还没有任务,先创建一个吧' }}</p>
-            <el-button v-if="!jobs.length" type="primary" @click.stop="$router.push('/new')">新建任务</el-button>
+            <div v-if="!jobs.length" class="empty-actions" @click.stop>
+              <el-button type="primary" @click="$router.push('/workflows/digital_human/run')">数字人口播</el-button>
+              <el-button type="primary" @click="$router.push('/workflows/broll_voiceover/run')">配音混剪</el-button>
+              <el-button type="primary" @click="$router.push('/workflows/video_translate/run')">视频翻译</el-button>
+              <el-button text @click="$router.push('/new')">数字人快捷任务</el-button>
+            </div>
           </div>
         </template>
         <el-table-column label="任务" min-width="220">
@@ -114,6 +134,7 @@
           <el-input v-model="publishForm.tags" placeholder="逗号分隔,可留空" />
         </el-form-item>
       </el-form>
+      <p class="hint publish-note">抖音发布遇到短信或滑块时需要你在弹出的浏览器里完成验证，验证完成前不算发布成功。</p>
       <template #footer>
         <el-button @click="publishDlg = false">取消</el-button>
         <el-button type="primary" :loading="publishing" @click="doPublish">开始发布</el-button>
@@ -129,11 +150,18 @@ import {
   CircleCheck, CircleClose, Loading, MoreFilled, Plus, Share, VideoCamera, VideoPlay,
 } from '@element-plus/icons-vue'
 import {
-  STATUS_TEXT, STATUS_TYPE, cancelJob, deleteJob, getSettings, isActive, listJobs, runJob,
+  STATUS_TEXT, STATUS_TYPE, cancelJob, deleteJob, getReadiness, getSettings, getUsage, isActive, listJobs, runJob,
 } from '../api.js'
 
 const jobs = ref([])
 const loading = ref(false)
+const commercialMode = ref(false)
+const readiness = ref(null)
+const usage = ref(null)
+const failedActions = computed(() => [...new Set(failedRequired.value.map((c) => c.action))])
+const failedRequired = computed(() =>
+  (readiness.value?.checks || []).filter((c) => c.required && !c.ok),
+)
 const stageNames = ref(['download', 'transcribe', 'rewrite', 'tts', 'avatar', 'postprocess', 'publish'])
 const filter = ref('all')
 let timer = null
@@ -250,12 +278,26 @@ async function doPublish() {
 
 onMounted(async () => {
   loading.value = true
+  const readyP = getReadiness().then((r) => {
+    readiness.value = r
+    if (r?.commercial_mode) commercialMode.value = true
+  }).catch(() => {
+    readiness.value = null
+  })
+  const usageP = getUsage().then((u) => {
+    usage.value = u
+    if (u?.commercial_mode) commercialMode.value = true
+  }).catch(() => {
+    usage.value = null
+  })
   try {
     const s = await getSettings()
     stageNames.value = s.stage_names
+    if (s.commercial_mode) commercialMode.value = true
     await refresh()
   } finally {
     loading.value = false
+    await Promise.all([readyP, usageP])
   }
 })
 onUnmounted(() => clearTimeout(timer))
@@ -301,6 +343,12 @@ onUnmounted(() => clearTimeout(timer))
 
 .empty { padding: 40px 0; color: var(--vh-text-3); display: flex; flex-direction: column; align-items: center; }
 .empty p { margin: 10px 0 16px; }
+.empty-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; max-width: 520px; }
+.empty-actions :deep(.el-button) { margin-left: 0; }
+.ready-banner { margin-bottom: 16px; }
+.ready-banner :deep(.el-alert__title) { white-space: pre-line; }
+.ready-ok { margin: 0 0 16px; }
+.publish-note { margin: 0; }
 
 @media (max-width: 960px) {
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }

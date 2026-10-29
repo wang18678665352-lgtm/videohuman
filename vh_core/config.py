@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -43,6 +44,11 @@ class Settings(BaseSettings):
     # AI 生成内容标识(合规):画面角标文字 + 隐式元数据里的内容制作者名称
     aigc_label_text: str = "本视频由AI生成"
     aigc_producer: str = "videohuman"
+    # 商用模式下禁止关闭画面 AI 生成角标。环境变量 VH_COMMERCIAL。
+    commercial_mode: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("VH_COMMERCIAL", "VH_COMMERCIAL_MODE", "commercial_mode"),
+    )
 
     # LLM 改写提示词文件(空=内置合规版:润色/纠错,忠于原意);详见 stages/rewrite.py
     llm_prompt_file: str = ""

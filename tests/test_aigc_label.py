@@ -78,10 +78,18 @@ def test_final_video_has_visible_and_implicit_ai_labels(settings: Settings) -> N
 
 
 def test_disabling_visible_label_keeps_implicit_metadata(settings: Settings) -> None:
+    settings.commercial_mode = False
     ctx = _ctx(settings, {**PP_MINIMAL, "ai_label": False})
     final = PostprocessStage().run(ctx)["final"]
     assert json.loads(_tags(final)["AIGC"])["Label"] == "1"
     assert _frame_luma(final) < 1.0  # 未加角标,仍是纯黑
+
+
+def test_commercial_mode_refuses_to_hide_visible_label(settings: Settings) -> None:
+    settings.commercial_mode = True
+    ctx = _ctx(settings, {**PP_MINIMAL, "ai_label": False})
+    with pytest.raises(ValueError, match="商用模式"):
+        PostprocessStage().run(ctx)
 
 
 def test_visible_label_failure_fails_the_stage(settings: Settings) -> None:

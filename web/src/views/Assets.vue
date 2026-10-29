@@ -4,6 +4,10 @@
       <div>
         <h1>素材与设置</h1>
         <p class="sub">管理参考音频、形象视频等素材,配置发布平台登录与 LLM 改写。</p>
+        <p v-if="settings.commercial_mode" class="sub">商用模式下，上传素材仍需勾选授权确认，授权记录可导出后交给客户。</p>
+      </div>
+      <div class="actions">
+        <el-button @click="exportConsent">导出授权记录</el-button>
       </div>
     </div>
 
@@ -93,7 +97,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   FolderOpened, Headset, MagicStick, Microphone, Picture, Upload, VideoCamera,
 } from '@element-plus/icons-vue'
-import { assetUrl, getAssets, getSettings, loginDouyin, loginDouyinStatus, uploadAsset } from '../api.js'
+import { assetUrl, consentUrl, getAssets, getSettings, loginDouyin, loginDouyinStatus, uploadAsset } from '../api.js'
 
 const tab = ref('audio')
 const tabs = [
@@ -107,6 +111,10 @@ const assets = reactive({ audios: [], videos: [], bgms: [], brolls: [] })
 const settings = reactive({})
 const loginState = reactive({ status: 'idle', error: null })
 let loginTimer = null
+
+function exportConsent() {
+  window.location.href = consentUrl()
+}
 
 async function refresh() {
   Object.assign(assets, await getAssets())

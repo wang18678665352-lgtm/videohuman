@@ -13,6 +13,9 @@
         </p>
       </div>
       <div class="actions">
+        <el-button v-if="job.has_final" @click="downloadDelivery">
+          <el-icon><Download /></el-icon><span>下载交付包</span>
+        </el-button>
         <el-button v-if="active" type="warning" plain :disabled="job.status === 'cancelling'" @click="cancel">
           取消任务
         </el-button>
@@ -106,7 +109,7 @@ import {
   ArrowLeft, Check, Close, Download, Loading, Minus, RefreshRight, VideoCamera,
 } from '@element-plus/icons-vue'
 import {
-  STATUS_TEXT, STATUS_TYPE, assetUrl, cancelJob, fetchText, fileUrl, getJob, getSettings, isActive, runJob,
+  STATUS_TEXT, STATUS_TYPE, assetUrl, cancelJob, deliveryUrl, fetchText, fileUrl, getJob, getSettings, isActive, runJob,
 } from '../api.js'
 
 const props = defineProps({ id: String })
@@ -181,6 +184,10 @@ async function rerun(noResume) {
     ElMessage.error(e.message)
   }
   refresh()
+}
+
+function downloadDelivery() {
+  window.location.href = deliveryUrl(props.id)
 }
 
 async function cancel() {

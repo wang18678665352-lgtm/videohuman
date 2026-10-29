@@ -112,8 +112,10 @@
               <el-checkbox v-model="pp.cover" border>封面生成</el-checkbox>
               <el-checkbox v-model="pp.bg_image" border>背景图合成</el-checkbox>
               <el-checkbox v-model="watermarkOn" border>文字水印</el-checkbox>
+              <el-checkbox v-if="commercialMode" :model-value="true" disabled border>AI 生成角标</el-checkbox>
             </div>
             <el-input v-if="watermarkOn" v-model="pp.watermark_text" placeholder="水印文字" class="wm-input" />
+            <div v-if="commercialMode" class="hint">商用模式下角标不可关闭</div>
             <div class="hint">默认与内核一致,一般不用动</div>
           </el-form-item>
           <el-form-item label="发布到">
@@ -163,6 +165,7 @@ const mode = ref('audio')
 const submitting = ref(false)
 const assets = reactive({ audios: [], videos: [], bgms: [] })
 const watermarkOn = ref(false)
+const commercialMode = ref(false)
 const refTextLoading = ref(false)
 const audioAsrLoading = ref(false)
 
@@ -235,7 +238,11 @@ async function submit() {
     const payload = {
       avatar_engine: form.avatar_engine,
       avatar_video: form.avatar_video,
-      postprocess: { ...pp, watermark_text: watermarkOn.value ? pp.watermark_text : null },
+      postprocess: {
+        ...pp,
+        watermark_text: watermarkOn.value ? pp.watermark_text : null,
+        ...(commercialMode.value ? { ai_label: true } : {}),
+      },
     }
     if (form.job_id.trim()) payload.job_id = form.job_id.trim()
     if (mode.value === 'audio') {
@@ -272,6 +279,7 @@ async function submit() {
 onMounted(async () => {
   const [a, s] = await Promise.all([getAssets(), getSettings()])
   Object.assign(assets, a)
+  commercialMode.value = !!s.commercial_mode
   form.avatar_engine = s.default_avatar_engine
   if (a.audios.includes('assets/录音机-20261005-1322.m4a')) {
     form.audio = 'assets/录音机-20261005-1322.m4a'
